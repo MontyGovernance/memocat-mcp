@@ -1,0 +1,49 @@
+[project]
+name = "montycat-mcp"
+version = "0.1.0"
+description = "MCP server for Montycat — self-hosted, semantically-searchable long-term memory for AI agents. Vector search + NoSQL in one engine, on-device embeddings, no external API."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Monty Governance" }]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "montycat",
+    "vector-database",
+    "semantic-search",
+    "rag",
+    "ai-memory",
+    "agent-memory",
+    "llm",
+    "nosql",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    # 1.0.7 adds semantic_search_get_{keys,values}_where — the hybrid
+    # metadata/time pre-filter montycat_semantic_search depends on.
+    "mcp[cli]>=1.2.0",
+    "montycat>=1.0.7",
+]
+
+[project.scripts]
+montycat-mcp = "montycat_mcp.server:main"
+
+[project.urls]
+Homepage = "https://montygovernance.com"
+Documentation = "https://montygovernance.com/docs"
+Source = "https://github.com/MontyGovernance"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["montycat_mcp"]
