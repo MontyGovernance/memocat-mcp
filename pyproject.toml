@@ -1,11 +1,11 @@
 [project]
-name = "montycat-mcp"
-version = "0.1.0"
+name = "memocat-mcp"
+version = "0.3.0"
 description = "MCP server for Montycat — self-hosted, semantically-searchable long-term memory for AI agents. Vector search + NoSQL in one engine, on-device embeddings, no external API."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Monty Governance" }]
+authors = [{ name = "MontyGovernance" }]
 keywords = [
     "mcp",
     "model-context-protocol",
@@ -27,23 +27,36 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    # Upper bound is deliberate: the real-time watch surface reaches into SDK
+    # internals (`_mcp_server`, a hand-built InitializationOptions to flip the
+    # hardcoded `resources.subscribe=False`, and the low-level subscribe
+    # handlers). A major bump must be re-verified rather than silently dropping
+    # push support — see memocat_mcp/watch.py and server.py `_run_stdio`.
+    "mcp[cli]>=1.2.0,<2",
     # 1.0.7 adds semantic_search_get_{keys,values}_where — the hybrid
-    # metadata/time pre-filter montycat_semantic_search depends on.
-    "mcp[cli]>=1.2.0",
+    # metadata/time pre-filter memocat_semantic_search depends on.
     "montycat>=1.0.7",
 ]
 
 [project.scripts]
-montycat-mcp = "montycat_mcp.server:main"
+memocat-mcp = "memocat_mcp.server:main"
 
 [project.urls]
 Homepage = "https://montygovernance.com"
 Documentation = "https://montygovernance.com/docs"
-Source = "https://github.com/MontyGovernance"
+Source = "https://github.com/MontyGovernance/meow_memory_mcp"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["montycat_mcp"]
+packages = ["memocat_mcp"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

@@ -1,7 +1,7 @@
-# Montycat MCP Server
+# MemoCat — MCP Server for Montycat
 
 **Give your AI agents self-hosted, semantically-searchable long-term memory.**
-`montycat-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
+`memocat-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
 server for [Montycat](https://montygovernance.com) — a Rust-powered vector
 database and NoSQL store in one engine. Agents *remember* facts and *recall*
 them by meaning (vector search) or by key, on your own hardware, with on-device
@@ -22,15 +22,40 @@ rented services.
 
 | Tool | What it does |
 |------|--------------|
-| `montycat_semantic_search` | Recall by **meaning** (vector kNN) — the core RAG/memory tool. |
-| `montycat_remember` | Store a fact/record; embedded + indexed automatically. |
-| `montycat_remember_bulk` | Store many memories at once. |
-| `montycat_recall` | Fetch by exact key or by field filter. |
-| `montycat_list_memories` | Browse / list stored memories (optionally most-recent first). |
-| `montycat_update` | Revise a memory in place — memory is mutable. |
-| `montycat_forget` | Delete a stored record. |
-| `montycat_list_keyspaces` | Discover available memory namespaces. |
-| `montycat_create_keyspace` | Provision a new memory namespace. |
+| `memocat_semantic_search` | Recall by **meaning** (vector kNN) — the core RAG/memory tool. |
+| `memocat_remember` | Store a fact/record; embedded + indexed automatically. |
+| `memocat_remember_bulk` | Store many memories at once. |
+| `memocat_recall` | Fetch by exact key or by field filter. |
+| `memocat_list_memories` | Browse / list stored memories (optionally most-recent first). |
+| `memocat_update` | Revise a memory in place — memory is mutable. |
+| `memocat_forget` | Delete a stored record. |
+| `memocat_list_keyspaces` | Discover available memory namespaces. |
+| `memocat_create_keyspace` | Provision a new memory namespace. |
+| `memocat_await_memory_change` | **Wait for memory to change** — returns the moment another agent or session writes. Live subscription, not polling. |
+
+## Real-time memory watch
+
+Other memory servers can only be polled: ask again, and again, in case something
+changed. Montycat has **native live subscriptions**, so this one pushes.
+
+```
+agent B: memocat_await_memory_change(scope="shared", timeout_sec=60)
+                    ⏳ sleeps — no polling, no wasted tokens
+agent A: memocat_remember({"text": "the deploy key rotated"}, scope="shared")
+agent B: ← returns in milliseconds with the key, the value, and the event
+```
+
+Two agents, one shared scope, one notices what the other just learned. Pass the
+returned `next_seq` back as `since_seq` to resume exactly where you left off —
+changes that happen between calls are buffered, not lost.
+
+Memory namespaces are also exposed as MCP **resources**
+(`memocat://memory/<keyspace>`) with `resources.subscribe` support, so clients
+that implement resource subscriptions get `notifications/resources/updated`
+pushed to them as well. Both surfaces share one engine subscription.
+
+Subscriptions open on demand and close when idle
+(`MONTYCAT_WATCH_IDLE_TIMEOUT`), so users who never watch pay nothing.
 
 ## Requirements
 
@@ -46,7 +71,7 @@ rented services.
 ## Install & run
 
 ```bash
-uvx montycat-mcp
+uvx memocat-mcp
 ```
 
 Configure the connection with environment variables (see below).
@@ -58,9 +83,9 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
-    "montycat": {
+    "memocat": {
       "command": "uvx",
-      "args": ["montycat-mcp"],
+      "args": ["memocat-mcp"],
       "env": {
         "MONTYCAT_URI": "montycat://admin:change-me@localhost:21210/mystore"
       }
@@ -85,8 +110,12 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`):
 | `MONTYCAT_SCOPE_PREFIX` | `mem_` | Prefix for per-owner keyspaces (`mem_<scope>`) |
 | `MONTYCAT_SHARED_KEYSPACE` | `mem_shared` | The common/shared keyspace name |
 | `MONTYCAT_AUTO_PROVISION` | `true` | Auto-create a scope's keyspace on first use (needs superowner) |
+| `MONTYCAT_AUTO_TIMESTAMP` | `true` | Stamp each memory with an indexed `_created_at`, enabling time-range recall (`since`/`until`). Costs a server-side timestamp parse per write — turn off if memories are never recalled by time. |
+| `MONTYCAT_SUBSCRIPTION_PORT` | main + 1 | Engine subscription server port (21211 by default; enabled by default) |
+| `MONTYCAT_WATCH_BUFFER` | `500` | Changes retained per watched keyspace, so changes between calls aren't lost |
+| `MONTYCAT_WATCH_IDLE_TIMEOUT` | `300` | Seconds before an unused subscription is closed |
 
-`montycat_create_keyspace` and `montycat_forget` require superowner credentials.
+`memocat_create_keyspace` and `memocat_forget` require superowner credentials.
 
 ## Memory scoping (multi-tenant)
 
