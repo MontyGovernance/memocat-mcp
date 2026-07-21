@@ -1,0 +1,39 @@
+name: memocat
+
+services:
+  montycat:
+    image: montygovernance/montycat:${MONTYCAT_IMAGE_TAG:-semantic}
+    environment:
+      MONTYCAT_SUPEROWNER: ${MONTYCAT_USERNAME:-admin}
+      MONTYCAT_PASSWORD: ${MONTYCAT_PASSWORD:?set MONTYCAT_PASSWORD in .env}
+      MONTYCAT_SEMANTIC: "on"
+    ports:
+      - "${MONTYCAT_PORT:-21210}:21210"
+      - "${MONTYCAT_SUBSCRIPTION_PORT:-21211}:21211"
+    volumes:
+      - montycat_data:/var/lib/.montycat
+    restart: unless-stopped
+
+  # This is deliberately a stdio service: start it through `docker compose run
+  # -T mcp` from an MCP client. It does not publish an HTTP port.
+  mcp:
+    build:
+      context: .
+      additional_contexts:
+        montycat_client: ${MONTYCAT_CLIENT_PATH:?set MONTYCAT_CLIENT_PATH in .env}
+    image: memocat-mcp:local
+    environment:
+      MONTYCAT_HOST: montycat
+      MONTYCAT_PORT: "21210"
+      MONTYCAT_USERNAME: ${MONTYCAT_USERNAME:-admin}
+      MONTYCAT_PASSWORD: ${MONTYCAT_PASSWORD:?set MONTYCAT_PASSWORD in .env}
+      MONTYCAT_STORE: ${MONTYCAT_STORE:-memories}
+      MONTYCAT_SUBSCRIPTION_PORT: "21211"
+      MEMOCAT_AUTOSTART: "off"
+    depends_on:
+      - montycat
+    stdin_open: true
+    profiles: ["mcp"]
+
+volumes:
+  montycat_data:

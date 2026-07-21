@@ -1,10 +1,17 @@
 # Zero-config auto-start — plan
 
+> **Superseded distribution decision (current implementation):** detect an
+> existing `montycat_bin` first; otherwise macOS/Windows invoke verified desktop
+> packages from `downloads.montygovernance.com`, Linux invokes the official APT
+> package when configured, and every unsuccessful path falls through to Docker.
+> The archive-only proposal below remains historical until the downloads site
+> publishes a signed installer manifest and final names.
+
 **Status:** not built · target release **0.4** · PLAN.md §7.1 / milestone 4
 
 ## Why
 
-Installing MemoCat today is four steps: install Docker → `docker run` the engine
+Installing Memocat today is four steps: install Docker → `docker run` the engine
 → set `MONTYCAT_URI` → `uvx memocat-mcp`. Competing memory MCP servers are one
 step, because they have no database to stand up. Every extra step costs
 installs, and a registry listing only gets one first impression.
@@ -124,7 +131,7 @@ Pieces:
   Leave it running, reuse it next launch, and document how to stop it. This is
   the opposite of the usual "clean up your subprocess" instinct and needs to be
   deliberate.
-- **Concurrency.** Two agents may launch MemoCat simultaneously. Guard start
+- **Concurrency.** Two agents may launch Memocat simultaneously. Guard start
   with a lockfile in `~/.montycat/`, and treat "port already in use" as success
   after re-probing, not as an error.
 - **Never hang.** Every tier is bounded. Tier 4's message must name both install

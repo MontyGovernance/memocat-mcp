@@ -4,7 +4,8 @@
 Four tiers, tried in order, first success wins:
 
   1. an engine is already reachable (or MONTYCAT_URI is set) -> just use it
-  2. a native binary -> download, verify, cache under ~/.montycat/bin, run
+  2. a detected/installed native engine; if absent, invoke the official
+     platform installer (macOS/Windows) or APT (Linux)
   3. Docker -> pull and run the architecture-correct image
   4. neither -> one clear error naming both install paths; never hang
 
@@ -35,17 +36,30 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 21210
 DOWNLOAD_BASE = "https://downloads.montygovernance.com/bin"
 CONTAINER_NAME = "memocat-engine"
 DEFAULT_STORE = "memocat"
+INSTALLER_BASE = "https://downloads.montygovernance.com/packages"
+_BINARY_NAMES = ("montycat_bin", "montycat_bin.exe")
+_APT_SEMANTIC_INSTALL = (
+    "curl -fsSL https://repo-deb.montygovernance.com/KEY.gpg "
+    "| sudo gpg --dearmor -o /usr/share/keyrings/montycat-archive-keyring.gpg "
+    "&& echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/montycat-archive-keyring.gpg] "
+    "https://repo-deb.montygovernance.com stable main' "
+    "| sudo tee /etc/apt/sources.list.d/montycat.list > /dev/null "
+    "&& sudo apt update && sudo apt install -y montycat-semantic"
+)
 
 logger = __import__("logging").getLogger("memocat.bootstrap")
 
@@ -78,10 +92,10 @@ def _host_port() -> tuple[str, int]:
     uri = os.environ.get("MONTYCAT_URI")
     if uri:
         try:
-            hostport = uri.split("@", 1)[1].split("/", 1)[0]
-            host, port = hostport.rsplit(":", 1)
-            return host, int(port)
-        except (IndexError, ValueError):
+            parsed = urlparse(uri)
+            if parsed.hostname is not None and parsed.port is not None:
+                return parsed.hostname, parsed.port
+        except ValueError:
             pass
     return (
         os.environ.get("MONTYCAT_HOST", DEFAULT_HOST),
@@ -191,6 +205,20 @@ def resolve_binary_url(version: str = "latest") -> Optional[str]:
     return f"{DOWNLOAD_BASE}/montycat-semantic_{version}_{slug}.tar.gz"
 
 
+def installer_url(version: str = "latest") -> Optional[str]:
+    """Published desktop installer location, using the temporary predictable
+    naming convention until the downloads site exposes a signed manifest."""
+    override = os.environ.get("MEMOCAT_INSTALLER_URL")
+    if override:
+        return override
+    system = platform.system().lower()
+    if system == "darwin":
+        return f"{INSTALLER_BASE}/montycat-semantic_{version}_macos-universal.pkg"
+    if system == "windows" and platform.machine().lower() in ("amd64", "x86_64"):
+        return f"{INSTALLER_BASE}/montycat-semantic_{version}_windows-x86_64.msi"
+    return None
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -209,18 +237,33 @@ def _fetch(url: str, dest: Path) -> None:
             shutil.copyfileobj(response, out)
 
 
+def _inside(target: Path, member: str) -> bool:
+    """Whether an archive member resolves inside ``target``."""
+    try:
+        (target / member).resolve().relative_to(target.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def _unpack(archive: Path, target: Path) -> None:
     target.mkdir(parents=True, exist_ok=True)
     if zipfile.is_zipfile(archive):
         with zipfile.ZipFile(archive) as zf:
+            for member in zf.infolist():
+                # Zip does not provide tar's ``data`` filter. Reject links as
+                # well as traversal/absolute names rather than trusting the
+                # extractor's version-specific path cleanup.
+                mode = member.external_attr >> 16
+                if not _inside(target, member.filename) or stat.S_ISLNK(mode):
+                    raise BootstrapError(f"archive entry escapes target: {member.filename}")
             zf.extractall(target)
         return
     with tarfile.open(archive) as tf:
         # Refuse paths that escape the target; a hostile archive should not be
         # able to write outside the cache directory.
         for member in tf.getmembers():
-            resolved = (target / member.name).resolve()
-            if not str(resolved).startswith(str(target.resolve())):
+            if not _inside(target, member.name):
                 raise BootstrapError(f"archive entry escapes target: {member.name}")
         try:
             # `data` rejects absolute paths, traversal and special files, and is
@@ -232,10 +275,95 @@ def _unpack(archive: Path, target: Path) -> None:
 
 
 def _find_binary(root: Path) -> Optional[Path]:
-    for candidate in ("montycat_bin", "montycat_bin.exe"):
+    for candidate in _BINARY_NAMES:
         for found in root.rglob(candidate):
             return found
     return None
+
+
+def find_installed_binary() -> Optional[Path]:
+    """Find an engine installed by the user or a platform installer.
+
+    An explicit location wins; PATH covers normal Linux installs. The extra
+    locations cover the conventional macOS and Windows installer destinations,
+    whose PATH updates are not visible to the already-running MCP process.
+    """
+    explicit = os.environ.get("MEMOCAT_ENGINE_BINARY")
+    if explicit:
+        path = Path(explicit)
+        return path if path.is_file() else None
+    for name in _BINARY_NAMES:
+        found = shutil.which(name)
+        if found:
+            return Path(found)
+    candidates = [
+        Path("/usr/local/bin/montycat_bin"),
+        Path("/opt/homebrew/bin/montycat_bin"),
+    ]
+    if os.name == "nt":
+        for root in (os.environ.get("ProgramFiles"), os.environ.get("LOCALAPPDATA")):
+            if root:
+                candidates.append(Path(root) / "Montycat" / "montycat_bin.exe")
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def _cache_valid(cache: Path) -> Optional[Path]:
+    """Return a cached binary only when its recorded hash still matches."""
+    binary = _find_binary(cache) if cache.exists() else None
+    digest_file = cache / ".memocat-binary.sha256"
+    if binary is None or not digest_file.is_file():
+        return None
+    try:
+        expected = digest_file.read_text().strip()
+    except OSError:
+        return None
+    return binary if expected and _sha256(binary) == expected else None
+
+
+@contextmanager
+def _cache_lock(cache: Path):
+    """A small cross-process lock for one cache version.
+
+    Atomic directory creation works on all supported platforms. A stale lock is
+    reclaimed after the download timeout plus a small margin, so a killed
+    launcher cannot block future starts forever.
+    """
+    lock = cache.with_name(f"{cache.name}.lock")
+    deadline = time.monotonic() + 180
+    while True:
+        try:
+            lock.mkdir()
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > 300:
+                    shutil.rmtree(lock)
+                    continue
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                raise BootstrapError(f"timed out waiting for engine cache lock: {lock}")
+            time.sleep(0.1)
+    try:
+        yield
+    finally:
+        try:
+            lock.rmdir()
+        except OSError:
+            pass
+
+
+def _library_path(directory: Path) -> dict[str, str]:
+    """Make bundled shared libraries discoverable by a native artifact."""
+    if os.name == "nt":
+        variable = "PATH"
+    elif platform.system().lower() == "darwin":
+        variable = "DYLD_FALLBACK_LIBRARY_PATH"
+    else:
+        variable = "LD_LIBRARY_PATH"
+    current = os.environ.get(variable, "")
+    value = str(directory) if not current else f"{directory}{os.pathsep}{current}"
+    return {variable: value}
 
 
 async def download_binary(version: str = "latest") -> Optional[Path]:
@@ -249,44 +377,134 @@ async def download_binary(version: str = "latest") -> Optional[Path]:
         return None
 
     cache = _home() / "bin" / version
-    existing = _find_binary(cache) if cache.exists() else None
+    existing = _cache_valid(cache)
     if existing is not None:
         return existing
 
     def _download() -> Optional[Path]:
-        with tempfile.TemporaryDirectory() as tmp:
-            tmpdir = Path(tmp)
-            archive = tmpdir / "engine-archive"
-            try:
-                _fetch(url, archive)
-            except (urllib.error.URLError, OSError) as exc:
-                logger.debug("native engine archive unavailable at %s: %s", url, exc)
-                return None
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        with _cache_lock(cache):
+            existing = _cache_valid(cache)
+            if existing is not None:
+                return existing
+            with tempfile.TemporaryDirectory(dir=cache.parent) as tmp:
+                tmpdir = Path(tmp)
+                archive = tmpdir / "engine-archive"
+                try:
+                    _fetch(url, archive)
+                except (urllib.error.URLError, OSError) as exc:
+                    logger.debug("native engine archive unavailable at %s: %s", url, exc)
+                    return None
 
+                try:
+                    expected = _expected_checksum(url, tmpdir)
+                except (urllib.error.URLError, OSError) as exc:
+                    logger.debug("checksum unavailable for %s: %s", url, exc)
+                    return None
+                if expected is None:
+                    logger.debug("no checksum published for %s — refusing to run it", url)
+                    return None
+                actual = _sha256(archive)
+                if actual != expected:
+                    raise BootstrapError(
+                        f"checksum mismatch for {url}: expected {expected}, got {actual}"
+                    )
+
+                staged = tmpdir / "cache"
+                _unpack(archive, staged)
+                binary = _find_binary(staged)
+                if binary is None:
+                    logger.debug("archive contained no montycat_bin")
+                    return None
+                binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
+                (staged / ".memocat-binary.sha256").write_text(_sha256(binary))
+
+                if cache.exists():
+                    shutil.rmtree(cache)
+                os.rename(staged, cache)
+                return _cache_valid(cache)
+
+    return await asyncio.to_thread(_download)
+
+
+async def download_installer(version: str = "latest") -> Optional[Path]:
+    """Download a verified macOS/Windows installer into the user cache."""
+    url = installer_url(version)
+    if url is None:
+        return None
+
+    def _download() -> Optional[Path]:
+        suffix = ".pkg" if url.endswith(".pkg") else ".msi"
+        cache = _home() / "installers" / f"montycat-semantic_{version}{suffix}"
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=cache.parent) as tmp:
+            tmpdir = Path(tmp)
+            staged = tmpdir / f"installer{suffix}"
             try:
+                _fetch(url, staged)
                 expected = _expected_checksum(url, tmpdir)
             except (urllib.error.URLError, OSError) as exc:
-                logger.debug("checksum unavailable for %s: %s", url, exc)
+                logger.debug("installer unavailable at %s: %s", url, exc)
                 return None
-            if expected is None:
-                logger.debug("no checksum published for %s — refusing to run it", url)
+            if not expected:
+                logger.debug("no checksum published for installer %s", url)
                 return None
-            actual = _sha256(archive)
+            actual = _sha256(staged)
             if actual != expected:
                 raise BootstrapError(
                     f"checksum mismatch for {url}: expected {expected}, got {actual}"
                 )
-
-            _unpack(archive, cache)
-
-        binary = _find_binary(cache)
-        if binary is None:
-            logger.debug("archive contained no montycat_bin")
-            return None
-        binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
-        return binary
+            os.replace(staged, cache)
+        return cache
 
     return await asyncio.to_thread(_download)
+
+
+async def install_desktop_package() -> bool:
+    """Open the platform installer, allowing macOS/UAC to request consent."""
+    package = await download_installer()
+    if package is None:
+        return False
+    system = platform.system().lower()
+    if system == "darwin":
+        command = ["open", str(package)]
+    elif system == "windows":
+        command = ["msiexec.exe", "/i", str(package)]
+    else:
+        return False
+    try:
+        return await asyncio.to_thread(
+            lambda: subprocess.run(command, capture_output=True, timeout=30).returncode == 0
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.debug("desktop installer did not start: %s", exc)
+        return False
+
+
+async def install_linux_apt() -> bool:
+    """Run Montycat's documented one-command semantic APT installation.
+
+    The official repository is AMD64-only; ARM Linux deliberately skips this
+    tier and goes straight to the architecture-correct Docker image.
+    """
+    if (
+        platform.system().lower() != "linux"
+        or platform.machine().lower() not in ("x86_64", "amd64")
+        or shutil.which("apt-get") is None
+    ):
+        return False
+    command = os.environ.get("MEMOCAT_APT_INSTALL_COMMAND")
+    # The documented command needs pipes and redirection. An override is
+    # intentionally executed the same way: it is an operator-controlled escape
+    # hatch for mirrors and managed package sources.
+    args = ["sh", "-c", command or _APT_SEMANTIC_INSTALL]
+    try:
+        return await asyncio.to_thread(
+            lambda: subprocess.run(args, capture_output=True, timeout=120).returncode == 0
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.debug("APT installation did not complete: %s", exc)
+        return False
 
 
 def _expected_checksum(url: str, tmpdir: Path) -> Optional[str]:
@@ -298,7 +516,16 @@ def _expected_checksum(url: str, tmpdir: Path) -> Optional[str]:
 
 
 async def start_native(host: str, port: int) -> bool:
-    binary = await download_binary()
+    binary = find_installed_binary()
+    if binary is None:
+        system = platform.system().lower()
+        installed = (
+            await install_desktop_package() if system in ("darwin", "windows")
+            else await install_linux_apt() if system == "linux" else False
+        )
+        if not installed:
+            return False
+        binary = find_installed_binary()
     if binary is None:
         return False
 
@@ -308,6 +535,7 @@ async def start_native(host: str, port: int) -> bool:
         "MONTYCAT_SUPEROWNER": user,
         "MONTYCAT_PASSWORD": password,
         "MONTYCAT_SEMANTIC": os.environ.get("MONTYCAT_SEMANTIC", "on"),
+        **_library_path(binary.parent),
     }
     try:
         subprocess.Popen(  # noqa: S603 - our own verified binary
@@ -352,6 +580,23 @@ async def start_docker(host: str, port: int) -> bool:
             capture_output=True, text=True, timeout=30,
         )
         if existing.returncode == 0 and existing.stdout.strip():
+            mapped = subprocess.run(  # noqa: S603
+                ["docker", "port", CONTAINER_NAME, "21210/tcp"],
+                capture_output=True, text=True, timeout=30,
+            )
+            ports = [line.rsplit(":", 1)[-1].strip() for line in mapped.stdout.splitlines()]
+            if mapped.returncode != 0 or str(port) not in ports:
+                logger.warning(
+                    "existing %s does not publish engine port %s; refusing to reuse it",
+                    CONTAINER_NAME, port,
+                )
+                return False
+            running = subprocess.run(  # noqa: S603
+                ["docker", "inspect", "-f", "{{.State.Running}}", CONTAINER_NAME],
+                capture_output=True, text=True, timeout=30,
+            )
+            if running.returncode == 0 and running.stdout.strip() == "true":
+                return True
             # Reuse the container we started previously — its volume holds the
             # agent's memory, so replacing it would look like data loss.
             return subprocess.run(  # noqa: S603
@@ -395,7 +640,9 @@ _INSTALL_HELP = (
     "        -e MONTYCAT_SUPEROWNER=admin -e MONTYCAT_PASSWORD=change-me \\\n"
     "        montygovernance/montycat:arm64-semantic\n"
     "    (x86_64: use the `semantic` tag instead), or\n"
-    "  • install it natively — https://montygovernance.com/download\n"
+    "  • install it natively — Linux: configure the Montycat APT repository and "
+    "install `montycat`; macOS/Windows: use the package from "
+    "https://montygovernance.com/download\n"
     "Then point MemoCat at it with MONTYCAT_URI, or set MEMOCAT_AUTOSTART=off "
     "to skip this check."
 )

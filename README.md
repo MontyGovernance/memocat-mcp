@@ -1,4 +1,4 @@
-# MemoCat — MCP Server for Montycat
+#Memocat — MCP Server for Montycat
 
 **Give your AI agents self-hosted, semantically-searchable long-term memory.**
 `memocat-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
@@ -97,6 +97,87 @@ uvx memocat-mcp
 ```
 
 Configure the connection with environment variables (see below).
+
+## Docker Compose deployment
+
+Use Compose when you want a reproducible local deployment with a persistent
+Semantic engine and an MCP container on the same private Docker network. Docker
+is optional when you already manage a reachable Montycat server.
+
+Create a `.env` file beside `compose.yaml`:
+
+```dotenv
+MONTYCAT_USERNAME=admin
+MONTYCAT_PASSWORD=replace-with-a-strong-password
+MONTYCAT_STORE=memories
+# Apple Silicon: arm64-semantic. Intel/AMD64: semantic.
+MONTYCAT_IMAGE_TAG=semantic
+# Local checkout containing the unpublished montycat 1.0.7 client.
+MONTYCAT_CLIENT_PATH=/absolute/path/to/montycat_python
+```
+
+Start the engine and build the MCP image:
+
+```bash
+docker compose up -d montycat
+docker compose build mcp
+```
+
+`montycat` 1.0.7 is currently local-only and provides the required hybrid
+semantic-search methods. The image installs it from `MONTYCAT_CLIENT_PATH`
+through Compose's named build context; this is intentional and never falls back
+to an older PyPI client. Once 1.0.7 is published, replace that local context
+with a pinned published dependency before distributing the image externally.
+
+The engine data is stored in the named `montycat_data` volume. Ports `21210`
+and `21211` are published for debugging and external clients; the MCP container
+uses the private `montycat:21210` network address. Credentials are passed as
+separate environment variables, so passwords with URL-special characters need
+no URL encoding. Port `21211` carries live subscription traffic for
+`memocat_await_memory_change`.
+
+MCP uses stdio, so do **not** run it as a web service. Configure a desktop MCP
+client to invoke the Compose service on demand:
+
+```json
+{
+  "mcpServers": {
+    "memocat": {
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f", "/absolute/path/to/montycat_mcp/compose.yaml",
+        "run", "--rm", "-T", "mcp"
+      ]
+    }
+  }
+}
+```
+
+For Apple Silicon set `MONTYCAT_IMAGE_TAG=arm64-semantic` in `.env`; the plain
+`semantic` image is AMD64. Stop the stack with `docker compose down`; include
+`-v` only when you intentionally want to erase persisted memories.
+
+### Engine auto-start
+
+MemoCat first reuses an engine already reachable through `MONTYCAT_URI` or the
+host/port settings. If none is running, it looks for an installed
+`montycat_bin` and then attempts the official platform route:
+
+| Platform | Route | If it cannot complete |
+|---|---|---|
+| macOS | Download verified `.pkg` installer and open it (may prompt for admin approval) | Docker |
+| Windows x86_64 | Download verified `.msi` and invoke Windows Installer (may prompt for UAC) | Docker |
+| Linux AMD64 | Run the official one-command APT setup for `montycat-semantic` (may prompt for sudo) | Docker |
+| Other platforms | — | Docker |
+
+The package URLs currently use a temporary predictable naming convention while
+the downloads site publishes its installer manifest. Override it with
+`MEMOCAT_INSTALLER_URL` if needed. On Linux, set
+`MEMOCAT_APT_INSTALL_COMMAND` to use an organization-managed mirror or package
+command. ARM64 Linux goes directly to Docker because the official APT repository
+is AMD64-only. Set `MEMOCAT_AUTOSTART=off` to disable all installation/start
+attempts.
 
 ## Use with Claude Desktop / Cursor
 

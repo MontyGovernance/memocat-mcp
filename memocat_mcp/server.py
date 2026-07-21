@@ -60,6 +60,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import datetime, timezone
+from functools import wraps
 from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -73,6 +74,10 @@ _engine: Optional[Engine] = None
 _keyspaces: dict[tuple[str, bool], Any] = {}
 # name -> is-persistent, learned from the engine's structure (or recorded on create)
 _ks_type_cache: dict[str, bool] = {}
+
+
+class KeyspaceBindingError(RuntimeError):
+    """The server could not safely determine or provision a keyspace."""
 
 
 def _now_iso() -> str:
@@ -197,6 +202,10 @@ def _get_engine() -> Engine:
     uri = os.environ.get("MONTYCAT_URI")
     if uri:
         _engine = Engine.from_uri(uri)
+        # URI syntax identifies the endpoint and credentials; TLS remains an
+        # explicit opt-in so existing montycat:// configurations keep their
+        # plaintext behavior.
+        _engine.tls = _env_bool("MONTYCAT_TLS", False)
     else:
         _engine = Engine(
             host=os.environ.get("MONTYCAT_HOST", "127.0.0.1"),
@@ -207,6 +216,17 @@ def _get_engine() -> Engine:
             tls=_env_bool("MONTYCAT_TLS", False),
         )
     return _engine
+
+
+def _validate_limit(limit: int, *, name: str = "limit") -> None:
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError(f"{name} must be a positive integer.")
+
+
+def _validate_score(min_score: Optional[float]) -> None:
+    if min_score is not None and (isinstance(min_score, bool) or not isinstance(min_score, (int, float))
+                                  or not -1 <= min_score <= 1):
+        raise ValueError("min_score must be a number between -1 and 1.")
 
 
 def _default_keyspace() -> str:
@@ -268,10 +288,11 @@ async def _resolve_persistent(name: str) -> Optional[bool]:
     Result is cached per name."""
     if name in _ks_type_cache:
         return _ks_type_cache[name]
-    try:
-        res = await _get_engine().get_structure_available()
-    except Exception:
-        return None
+    res = await _call(_get_engine().get_structure_available())
+    if isinstance(res, dict) and res.get("status") is False:
+        raise KeyspaceBindingError(
+            f"Could not inspect keyspace {name!r}: {res.get('error') or 'unknown engine error'}"
+        )
     payload = res.get("payload") if isinstance(res, dict) else None
     structure = (payload or {}).get("structure") or {}
     for store in structure.values():
@@ -286,19 +307,30 @@ async def _resolve_persistent(name: str) -> Optional[bool]:
     return None
 
 
-async def _ensure_keyspace(name: str, persistent: bool) -> None:
-    """Create a keyspace if it does not exist (best-effort; needs superowner).
+async def _ensure_keyspace(name: str, persistent: bool) -> bool:
+    """Create a missing keyspace or return the type created by another caller.
 
-    Enables auto-provisioning of per-owner scopes on first use. Failures (e.g.
-    non-superowner credentials, or a race where it already exists) are ignored —
-    the subsequent operation surfaces any real error.
+    Provisioning failures must be visible: silently selecting the configured
+    storage type after an authorization or transport failure can send a request
+    to the wrong keyspace tier and disguise the real cause.
     """
-    try:
-        ks = _keyspace(name, persistent=persistent)
-        await ks.create_keyspace()
+    ks = _keyspace(name, persistent=persistent)
+    result = await _call(ks.create_keyspace())
+    if not (isinstance(result, dict) and result.get("status") is False):
         _ks_type_cache[name] = persistent
-    except Exception:
-        pass
+        return persistent
+
+    # A concurrent request may have created it between discovery and create.
+    # Re-read the structure before treating the original failure as fatal.
+    try:
+        detected = await _resolve_persistent(name)
+    except KeyspaceBindingError:
+        detected = None
+    if detected is not None:
+        return detected
+    raise KeyspaceBindingError(
+        f"Could not auto-provision keyspace {name!r}: {result.get('error') or 'unknown engine error'}"
+    )
 
 
 async def _bind(name: Optional[str] = None, persistent: Optional[bool] = None):
@@ -316,7 +348,11 @@ async def _bind(name: Optional[str] = None, persistent: Optional[bool] = None):
         if detected is None:
             persistent = _env_bool("MONTYCAT_PERSISTENT", True)
             if _env_bool("MONTYCAT_AUTO_PROVISION", True):
-                await _ensure_keyspace(name, persistent)
+                persistent = await _ensure_keyspace(name, persistent)
+            else:
+                raise KeyspaceBindingError(
+                    f"Keyspace {name!r} does not exist and MONTYCAT_AUTO_PROVISION is disabled."
+                )
         else:
             persistent = detected
     return _keyspace(name, persistent=persistent)
@@ -325,7 +361,19 @@ async def _bind(name: Optional[str] = None, persistent: Optional[bool] = None):
 # ── tools ────────────────────────────────────────────────────────────────────
 
 
+def _binding_failure(tool):
+    """Turn discovery/provisioning failures into normal MCP result envelopes."""
+    @wraps(tool)
+    async def wrapped(*args, **kwargs):
+        try:
+            return await tool(*args, **kwargs)
+        except KeyspaceBindingError as exc:
+            return _failure(str(exc))
+    return wrapped
+
+
 @mcp.tool()
+@_binding_failure
 async def memocat_semantic_search(
     query: str,
     keyspace: Optional[str] = None,
@@ -362,6 +410,8 @@ async def memocat_semantic_search(
                matches the auto-stamped `_created_at`).
         until: Only memories created before this time (ISO-8601, UTC).
     """
+    _validate_limit(limit)
+    _validate_score(min_score)
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     if since or until:
         filters = dict(filters or {})
@@ -379,12 +429,14 @@ async def memocat_semantic_search(
 
 
 @mcp.tool()
+@_binding_failure
 async def memocat_remember(
     value: dict,
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     custom_key: Optional[str] = None,
     timestamp: Optional[bool] = None,
+    wait_for_index: Optional[bool] = None,
 ) -> Any:
     """Store a fact or record in memory; it is embedded and indexed automatically.
 
@@ -407,15 +459,22 @@ async def memocat_remember(
                    MONTYCAT_AUTO_TIMESTAMP (on). Pass False to skip the
                    server-side timestamp parse when this memory will never be
                    recalled by time.
+        wait_for_index: For persistent keyspaces, wait until secondary indexes
+                        have caught up before returning. Defaults to the engine
+                        setting; use True when an immediate filtered/semantic
+                        recall must see this write.
     """
+    if not isinstance(value, dict) or not value:
+        raise ValueError("value must be a non-empty JSON object.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     value = _stamp(value, timestamp)
     if custom_key is not None:
-        return await _call(ks.insert_custom_key_value(custom_key, value))
-    return await _call(ks.insert_value(value))
+        return await _call(ks.insert_custom_key_value(custom_key, value, wait_for_index=wait_for_index))
+    return await _call(ks.insert_value(value, wait_for_index=wait_for_index))
 
 
 @mcp.tool()
+@_binding_failure
 async def memocat_recall(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
@@ -437,6 +496,7 @@ async def memocat_recall(
         filters: Field equality filters, e.g. {"user": "alice", "topic": "billing"}.
         limit: Max results for a filter lookup (default 25).
     """
+    _validate_limit(limit)
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     if key is not None or custom_key is not None:
         return await _call(ks.get_value(key=key, custom_key=custom_key))
@@ -467,18 +527,25 @@ async def memocat_create_keyspace(
         compression: Enable compression (persistent only).
     """
     ks = _keyspace(keyspace, persistent=persistent)
-    _ks_type_cache[keyspace] = persistent  # record type so later ops bind correctly
     if persistent:
-        return await _call(ks.create_keyspace(cache=cache, compression=compression))
-    return await _call(ks.create_keyspace())
+        result = await _call(ks.create_keyspace(cache=cache, compression=compression))
+    else:
+        result = await _call(ks.create_keyspace())
+    if isinstance(result, dict) and result.get("status") is not False:
+        # Cache only a successful creation. Recording before the engine accepts
+        # it makes a later bind believe a nonexistent keyspace already exists.
+        _ks_type_cache[keyspace] = persistent
+    return result
 
 
 @mcp.tool()
+@_binding_failure
 async def memocat_forget(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     key: Optional[str] = None,
     custom_key: Optional[str] = None,
+    wait_for_index: Optional[bool] = None,
 ) -> Any:
     """Delete a stored record from memory by key or custom key.
 
@@ -486,20 +553,24 @@ async def memocat_forget(
         keyspace: Memory namespace (defaults to the configured one).
         key: Montycat-generated key to delete.
         custom_key: Custom key to delete.
+        wait_for_index: For persistent keyspaces, wait for secondary indexes
+                        before returning. Defaults to the engine setting.
     """
     if key is None and custom_key is None:
         raise ValueError("Provide one of: key or custom_key.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
-    return await _call(ks.delete_key(key=key, custom_key=custom_key))
+    return await _call(ks.delete_key(key=key, custom_key=custom_key, wait_for_index=wait_for_index))
 
 
 @mcp.tool()
+@_binding_failure
 async def memocat_update(
     updates: dict,
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     key: Optional[str] = None,
     custom_key: Optional[str] = None,
+    wait_for_index: Optional[bool] = None,
 ) -> Any:
     """Revise an existing memory in place (memory is mutable).
 
@@ -512,14 +583,21 @@ async def memocat_update(
         keyspace: Memory namespace (defaults to the configured one).
         key: Montycat-generated key of the record to update.
         custom_key: Custom key of the record to update.
+        wait_for_index: For persistent keyspaces, wait for secondary indexes
+                        before returning. Defaults to the engine setting.
     """
     if key is None and custom_key is None:
         raise ValueError("Provide one of: key or custom_key.")
+    if not updates:
+        raise ValueError("updates must be a non-empty JSON object.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
-    return await _call(ks.update_value(key=key, custom_key=custom_key, **updates))
+    return await _call(ks.update_value(
+        key=key, custom_key=custom_key, wait_for_index=wait_for_index, **updates
+    ))
 
 
 @mcp.tool()
+@_binding_failure
 async def memocat_list_memories(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
@@ -538,6 +616,7 @@ async def memocat_list_memories(
         recent: Bias toward the most recently written records (default True).
                 Ordering is approximate (by storage volume), not a strict timestamp sort.
     """
+    _validate_limit(limit)
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     keys_res = await _call(ks.get_keys(latest_volume=recent))
     if isinstance(keys_res, dict) and keys_res.get("status") is False:
@@ -550,11 +629,13 @@ async def memocat_list_memories(
 
 
 @mcp.tool()
+@_binding_failure
 async def memocat_remember_bulk(
     values: list,
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     timestamp: Optional[bool] = None,
+    wait_for_index: Optional[bool] = None,
 ) -> Any:
     """Store many memories at once; all are embedded and indexed automatically.
 
@@ -565,13 +646,18 @@ async def memocat_remember_bulk(
                    Defaults to MONTYCAT_AUTO_TIMESTAMP (on). Pass False for
                    large imports that will never be recalled by time — it skips
                    a server-side timestamp parse per record.
+        wait_for_index: For persistent keyspaces, wait for secondary indexes
+                        before returning. Defaults to the engine setting.
     """
+    if not values or not all(isinstance(value, dict) and value for value in values):
+        raise ValueError("values must be a non-empty list of non-empty JSON objects.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
-    values = [_stamp(v, timestamp) if isinstance(v, dict) else v for v in values]
-    return await _call(ks.insert_bulk(bulk_values=values))
+    values = [_stamp(value, timestamp) for value in values]
+    return await _call(ks.insert_bulk(bulk_values=values, wait_for_index=wait_for_index))
 
 
 @mcp.tool()
+@_binding_failure
 async def memocat_await_memory_change(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
@@ -588,11 +674,13 @@ async def memocat_await_memory_change(
     in a tight loop as a substitute for searching — to *find* things, use
     memocat_semantic_search.
 
-    Returns `{changes: [...], next_seq, timed_out}`. Each change is
+    Returns `{changes: [...], next_seq, oldest_seq, cursor_expired, timed_out}`.
+    Each change is
     `{seq, key, event, value}` where event is "inserted" (covers create and
     update) or "removed". Pass the returned `next_seq` back as `since_seq` on
-    the next call to resume exactly where you left off — changes that happen
-    between calls are buffered, not lost.
+    the next call to resume exactly where you left off. If the bounded buffer
+    has discarded part of that history, `cursor_expired` is true and
+    `oldest_seq` identifies the earliest retained record.
 
     Args:
         scope: Owner/user id whose memory to watch (keyspace mem_<scope>).
@@ -626,7 +714,12 @@ async def memocat_await_memory_change(
         }
 
     timeout = max(1, min(int(timeout_sec), 300))
-    changes = await watch.wait(since_seq, timeout=timeout)
+    # The first call begins at this exact boundary. Passing the captured cursor
+    # to wait prevents a change between subscription setup and waiter creation
+    # from being silently dropped.
+    baseline_seq = watch.seq if since_seq is None else since_seq
+    cursor_expired = watch.cursor_expired(since_seq)
+    changes = await watch.wait(baseline_seq, timeout=timeout)
     await watch_registry.reap_idle()
 
     return {
@@ -635,6 +728,8 @@ async def memocat_await_memory_change(
             "keyspace": name,
             "changes": changes,
             "next_seq": watch.seq,
+            "oldest_seq": watch.oldest_seq,
+            "cursor_expired": cursor_expired,
             "timed_out": not changes,
         },
         "error": None,
@@ -659,8 +754,13 @@ def _memory_uri(keyspace: str) -> str:
 async def memory_resource(keyspace: str) -> Any:
     """A memory namespace, readable as a resource and subscribable for live
     change notifications."""
-    ks = await _bind(keyspace)
-    res = await ks.get_len()
+    try:
+        ks = await _bind(keyspace)
+    except KeyspaceBindingError as exc:
+        return _failure(str(exc))
+    res = await _call(ks.get_len())
+    if isinstance(res, dict) and res.get("status") is False:
+        return res
     count = res.get("payload") if isinstance(res, dict) else None
     watch = watch_registry.get(keyspace)
     return {
@@ -671,10 +771,56 @@ async def memory_resource(keyspace: str) -> Any:
     }
 
 
-# The session that background notifications are pushed through. Captured from
-# the subscribe request (handlers run inside a request, where the context is
-# available) because a push happens outside any request.
-_session: Any = None
+# Background notifications happen outside a request, so preserve ownership by
+# resource URI and session. A single global session worked only for stdio and
+# would send every HTTP client's update to whichever client subscribed last.
+_resource_sessions: dict[str, dict[int, Any]] = {}
+
+
+def _request_session() -> Any:
+    try:
+        return mcp._mcp_server.request_context.session
+    except LookupError:
+        return None
+
+
+def _add_resource_session(uri: str, session: Any) -> None:
+    _resource_sessions.setdefault(uri, {})[id(session)] = session
+
+
+def _remove_resource_session(uri: str, session: Any) -> bool:
+    sessions = _resource_sessions.get(uri)
+    if sessions is None:
+        return False
+    sessions.pop(id(session), None)
+    if sessions:
+        return False
+    _resource_sessions.pop(uri, None)
+    return True
+
+
+async def _release_resource_subscription(uri: str, session: Any) -> None:
+    """Drop one client's ownership and stop the engine watch when it was last."""
+    if not _remove_resource_session(uri, session):
+        return
+    name = _keyspace_from_uri(uri)
+    watch = watch_registry.get(name) if name else None
+    if watch is None:
+        return
+    watch.resource_uris.discard(uri)
+    if not watch.in_use():
+        await watch_registry.stop(name)
+
+
+async def _send_resource_updated(uri: str, session: Any) -> None:
+    from pydantic import AnyUrl
+
+    try:
+        await session.send_resource_updated(AnyUrl(uri))
+    except Exception:
+        # A disconnected HTTP client might not send unsubscribe. Treat a failed
+        # notification as release so it cannot keep an engine subscription alive.
+        await _release_resource_subscription(uri, session)
 
 
 def _notify_resource_updated(watch, _record: dict) -> None:
@@ -683,16 +829,15 @@ def _notify_resource_updated(watch, _record: dict) -> None:
     Runs inline in the subscription read loop, so it only schedules the send —
     it never awaits it.
     """
-    session = _session
-    if session is None or not watch.resource_uris:
+    if not watch.resource_uris:
         return
-    from pydantic import AnyUrl
 
     for uri in list(watch.resource_uris):
-        try:
-            asyncio.get_running_loop().create_task(session.send_resource_updated(AnyUrl(uri)))
-        except Exception:
-            pass
+        for session in list(_resource_sessions.get(uri, {}).values()):
+            try:
+                asyncio.get_running_loop().create_task(_send_resource_updated(uri, session))
+            except Exception:
+                pass
 
 
 watch_registry.on_change = _notify_resource_updated
@@ -707,33 +852,25 @@ def _keyspace_from_uri(uri: str) -> Optional[str]:
 @mcp._mcp_server.subscribe_resource()
 async def _subscribe_resource(uri) -> None:
     """A client subscribed to a memory resource — open the live subscription."""
-    global _session
-    try:
-        _session = mcp._mcp_server.request_context.session
-    except LookupError:
-        pass
-
     name = _keyspace_from_uri(uri)
-    if not name:
+    session = _request_session()
+    if not name or session is None:
         return
     ks = await _bind(name)
     watch = await watch_registry.get_or_start(name, ks)
-    watch.resource_uris.add(str(uri))
+    text_uri = str(uri)
+    watch.resource_uris.add(text_uri)
+    _add_resource_session(text_uri, session)
 
 
 @mcp._mcp_server.unsubscribe_resource()
 async def _unsubscribe_resource(uri) -> None:
     """Last subscriber gone — release the engine subscription (a lingering one
     blocks later keyspace removal; see watch.py)."""
-    name = _keyspace_from_uri(uri)
-    if not name:
+    session = _request_session()
+    if session is None:
         return
-    watch = watch_registry.get(name)
-    if watch is None:
-        return
-    watch.resource_uris.discard(str(uri))
-    if not watch.in_use():
-        await watch_registry.stop(name)
+    await _release_resource_subscription(str(uri), session)
 
 
 async def _run_stdio() -> None:
@@ -775,6 +912,7 @@ async def _run_stdio() -> None:
         try:
             await mcp._mcp_server.run(read_stream, write_stream, options)
         finally:
+            _resource_sessions.clear()
             await watch_registry.stop_all()
 
 

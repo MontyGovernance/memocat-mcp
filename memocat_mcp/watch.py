@@ -219,13 +219,29 @@ class MemoryWatch:
             return []
         return [c for c in self.changes if c["seq"] > seq]
 
+    @property
+    def oldest_seq(self) -> int:
+        """The earliest cursor still fully represented by this buffer.
+
+        A caller with ``since_seq < oldest_seq - 1`` has missed at least one
+        change. Exposing that fact lets it resync rather than treating a partial
+        replay as complete history.
+        """
+        return self.changes[0]["seq"] if self.changes else self.seq + 1
+
+    def cursor_expired(self, seq: Optional[int]) -> bool:
+        return seq is not None and seq < self.oldest_seq - 1
+
     async def wait(self, since_seq: Optional[int], timeout: float) -> list[dict]:
         """Return changes newer than `since_seq`, waiting up to `timeout`
         seconds for one to arrive. Push-backed: this wakes the moment a write
         lands, it does not poll the database."""
         self.last_used = time.monotonic()
 
-        buffered = self.since(since_seq)
+        # Direct callers may omit a cursor too; make their boundary the moment
+        # wait starts, matching the MCP tool's captured baseline behavior.
+        cursor = self.seq if since_seq is None else since_seq
+        buffered = self.since(cursor)
         if buffered:
             return buffered
 
@@ -240,9 +256,9 @@ class MemoryWatch:
             if waiter in self.waiters:
                 self.waiters.remove(waiter)
 
-        # Woken by a change: hand back everything new. When the caller passed
-        # no cursor, the single change that woke us is what it asked for.
-        return self.since(since_seq) if since_seq is not None else list(self.changes)[-1:]
+        # Returning through ``since`` also works for a first call: the tool
+        # captures its baseline sequence before registering the waiter.
+        return self.since(cursor)
 
     def idle_for(self) -> float:
         return time.monotonic() - self.last_used

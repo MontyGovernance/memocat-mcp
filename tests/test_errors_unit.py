@@ -75,6 +75,81 @@ async def test_value_error_still_propagates(call):
         await call(_raises(ValueError("No query text provided")))
 
 
+def test_uri_connection_can_opt_into_tls(server, monkeypatch):
+    monkeypatch.setattr(server, "_engine", None)
+    monkeypatch.setenv("MONTYCAT_URI", "montycat://user:password@localhost:21210/store")
+    monkeypatch.setenv("MONTYCAT_TLS", "true")
+
+    assert server._get_engine().tls is True
+    server._engine = None
+
+
+@pytest.mark.asyncio
+async def test_tool_inputs_are_validated_before_engine_access(server):
+    with pytest.raises(ValueError, match="positive integer"):
+        await server.memocat_semantic_search(query="anything", keyspace="k", limit=0)
+    with pytest.raises(ValueError, match="between -1 and 1"):
+        await server.memocat_semantic_search(query="anything", keyspace="k", min_score=2)
+    with pytest.raises(ValueError, match="non-empty JSON object"):
+        await server.memocat_remember(value={}, keyspace="k")
+    with pytest.raises(ValueError, match="non-empty list"):
+        await server.memocat_remember_bulk(values=[{"ok": True}, "bad"], keyspace="k")
+
+
+@pytest.mark.asyncio
+async def test_keyspace_discovery_failure_is_a_tool_failure_envelope(server, monkeypatch):
+    class BrokenEngine:
+        async def get_structure_available(self):
+            return "Error: connection reset"
+
+    monkeypatch.setattr(server, "_engine", BrokenEngine())
+    server._keyspaces.clear()
+    server._ks_type_cache.clear()
+
+    result = await server.memocat_remember(value={"text": "x"}, keyspace="private")
+
+    assert result["status"] is False
+    assert "Could not inspect keyspace" in result["error"]
+    server._keyspaces.clear()
+    server._ks_type_cache.clear()
+    server._engine = None
+
+
+@pytest.mark.asyncio
+async def test_missing_keyspace_without_auto_provision_is_explicit(server, monkeypatch):
+    class EmptyEngine:
+        async def get_structure_available(self):
+            return {"status": True, "payload": {"structure": {}}, "error": None}
+
+    monkeypatch.setattr(server, "_engine", EmptyEngine())
+    monkeypatch.setenv("MONTYCAT_AUTO_PROVISION", "false")
+    server._keyspaces.clear()
+    server._ks_type_cache.clear()
+
+    result = await server.memocat_remember(value={"text": "x"}, keyspace="private")
+
+    assert result["status"] is False
+    assert "AUTO_PROVISION is disabled" in result["error"]
+    server._keyspaces.clear()
+    server._ks_type_cache.clear()
+    server._engine = None
+
+
+@pytest.mark.asyncio
+async def test_failed_explicit_creation_does_not_poison_keyspace_type_cache(server, monkeypatch):
+    class FailingKeyspace:
+        async def create_keyspace(self, **_kwargs):
+            return "Error: permission denied"
+
+    server._ks_type_cache.clear()
+    monkeypatch.setattr(server, "_keyspace", lambda *_args, **_kwargs: FailingKeyspace())
+
+    result = await server.memocat_create_keyspace(keyspace="private", persistent=False)
+
+    assert result["status"] is False
+    assert "private" not in server._ks_type_cache
+
+
 @pytest.mark.asyncio
 async def test_every_tool_reports_failure_when_the_engine_is_unreachable(server, monkeypatch):
     """End-to-end shape check: with no engine, each tool must return a failure

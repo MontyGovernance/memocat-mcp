@@ -80,6 +80,16 @@ def test_since_none_replays_nothing():
     assert watch.since(None) == []
 
 
+def test_expired_cursor_is_detected_after_buffer_overflow():
+    watch = MemoryWatch("k", buffer_size=2)
+    for i in range(4):
+        watch._handle_frame(upsert(str(i), "{}"))
+
+    assert watch.oldest_seq == 3
+    assert watch.cursor_expired(1) is True
+    assert watch.cursor_expired(2) is False
+
+
 # ── waiting ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -120,6 +130,16 @@ async def test_incoming_change_wakes_the_waiter():
     assert len(got) == 1 and got[0]["key"] == "77"
     assert elapsed < 1.0, "woke on timeout rather than on the change"
     assert watch.waiters == []
+
+
+@pytest.mark.asyncio
+async def test_captured_baseline_returns_change_that_arrives_before_waiter():
+    watch = MemoryWatch("k")
+    baseline = watch.seq
+    watch._handle_frame(upsert("77", '{"text":"already buffered"}'))
+
+    got = await watch.wait(since_seq=baseline, timeout=0.1)
+    assert [change["key"] for change in got] == ["77"]
 
 
 # ── notifier isolation ───────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import hashlib
 import io
 import os
 import tarfile
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,47 @@ def test_unsupported_platform_has_no_url(monkeypatch):
 def test_binary_url_override_wins(monkeypatch):
     monkeypatch.setenv("MEMOCAT_BINARY_URL", "file:///tmp/engine.tar.gz")
     assert bootstrap.resolve_binary_url() == "file:///tmp/engine.tar.gz"
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "suffix"),
+    [("Darwin", "arm64", ".pkg"), ("Windows", "AMD64", ".msi")],
+)
+def test_desktop_installer_url(monkeypatch, system, machine, suffix):
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: system)
+    monkeypatch.setattr(bootstrap.platform, "machine", lambda: machine)
+    assert bootstrap.installer_url() is not None
+    assert bootstrap.installer_url().endswith(suffix)
+
+
+@pytest.mark.asyncio
+async def test_linux_apt_uses_the_documented_semantic_install(monkeypatch):
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(bootstrap.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: "/usr/bin/apt-get")
+    seen = {}
+
+    def fake_run(args, **_kwargs):
+        seen["args"] = args
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
+    assert await bootstrap.install_linux_apt() is True
+    assert seen["args"][:2] == ["sh", "-c"]
+    assert "repo-deb.montygovernance.com" in seen["args"][2]
+    assert "montycat-semantic" in seen["args"][2]
+
+
+@pytest.mark.asyncio
+async def test_linux_arm64_skips_apt(monkeypatch):
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(bootstrap.platform, "machine", lambda: "aarch64")
+    assert await bootstrap.install_linux_apt() is False
+
+
+def test_host_port_parses_ipv6_uri(monkeypatch):
+    monkeypatch.setenv("MONTYCAT_URI", "montycat://u:p@[2001:db8::1]:21210/store")
+    assert bootstrap._host_port() == ("2001:db8::1", 21210)
 
 
 @pytest.mark.parametrize(
@@ -147,6 +189,39 @@ def test_archive_cannot_escape_the_cache_directory(tmp_path):
         bootstrap._unpack(evil, tmp_path / "cache")
 
 
+def test_zip_archive_cannot_escape_the_cache_directory(tmp_path):
+    evil = tmp_path / "evil.zip"
+    with zipfile.ZipFile(evil, "w") as zf:
+        zf.writestr("../escaped", "nope")
+
+    with pytest.raises(bootstrap.BootstrapError, match="escapes target"):
+        bootstrap._unpack(evil, tmp_path / "cache")
+
+
+@pytest.mark.asyncio
+async def test_tampered_cached_binary_is_not_reused(tmp_path, monkeypatch):
+    archive = _make_archive(tmp_path)
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    (tmp_path / "engine.tar.gz.sha256").write_text(f"{digest}\n")
+    monkeypatch.setenv("MEMOCAT_BINARY_URL", f"file://{archive}")
+
+    binary = await bootstrap.download_binary()
+    assert binary is not None
+    binary.write_text("tampered")
+
+    restored = await bootstrap.download_binary()
+    assert restored is not None
+    assert restored.read_bytes() != b"tampered"
+
+
+def test_library_path_prepends_artifact_directory(monkeypatch, tmp_path):
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/existing")
+    assert bootstrap._library_path(tmp_path) == {
+        "LD_LIBRARY_PATH": f"{tmp_path}{os.pathsep}/existing"
+    }
+
+
 # ── credentials ──────────────────────────────────────────────────────────────
 
 def test_credentials_are_generated_once_and_reused():
@@ -223,6 +298,32 @@ async def test_native_is_preferred_over_docker(monkeypatch):
     monkeypatch.setattr(bootstrap, "start_native", _native)
     monkeypatch.setattr(bootstrap, "start_docker", _docker)
     assert await bootstrap.ensure_engine() == "native"
+
+
+@pytest.mark.asyncio
+async def test_native_start_sets_loader_path_and_launches(monkeypatch, tmp_path):
+    binary = tmp_path / "montycat_bin"
+    binary.write_text("placeholder")
+    captured = {}
+
+    async def ready(*_args):
+        return True
+
+    def fake_popen(args, **kwargs):
+        captured["args"] = args
+        captured["env"] = kwargs["env"]
+
+    monkeypatch.setattr(bootstrap, "find_installed_binary", lambda: binary)
+    monkeypatch.setattr(bootstrap, "wait_until_ready", ready)
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", fake_popen)
+
+    assert await bootstrap.start_native("127.0.0.1", 21210) is True
+    assert captured["args"] == [str(binary)]
+    variable = "PATH" if os.name == "nt" else (
+        "DYLD_FALLBACK_LIBRARY_PATH" if bootstrap.platform.system().lower() == "darwin"
+        else "LD_LIBRARY_PATH"
+    )
+    assert str(binary.parent) in captured["env"][variable]
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-"""MemoCat — MCP server exposing Montycat as self-hosted AI-agent memory."""
+"""Memocat — MCP server exposing Montycat as self-hosted AI-agent memory."""
 
 from importlib.metadata import PackageNotFoundError, version
 
