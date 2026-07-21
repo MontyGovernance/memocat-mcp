@@ -150,12 +150,18 @@ Ranked by adoption impact. The pitch they add up to: *"install in one command,
 memory that fades like real memory, and agents that notice when it changes."*
 
 ### 7.1 Zero-config auto-start — THE adoption lever
+> Detailed design: **[AUTOSTART_PLAN.md](AUTOSTART_PLAN.md)** — tiers, the
+> binary-artifact contract the engine side needs to publish, and the
+> README tag bug that breaks Apple Silicon installs today.
+
 `uvx memocat-mcp` must work cold, with no pre-existing engine. Tiered:
 1. `MONTYCAT_URI` set / engine reachable → just connect (skip everything).
 2. **Native binary** → download prebuilt `montycat_bin` for the platform into
    `~/.montycat/bin` (base engine is static musl on Linux; Windows binary
    exists), cache, start, connect.
-3. **Docker fallback** → pull/run `montygovernance/montycat:semantic`.
+3. **Docker fallback** → pull/run the arch-correct tag:
+   `arm64-semantic` on Apple Silicon, `semantic` on x86_64. Picking the
+   wrong one runs amd64 under emulation, where semantic warm-up crashes.
 4. Neither → clear error with the two install paths; never hang.
 
 Known ceiling: **macOS has no native engine build yet** → Mac users are
@@ -257,7 +263,11 @@ Implementation notes worth keeping:
    Requires `montycat>=1.0.7` (the `_where` client methods) and a Montycat
    Semantic engine >= 1.2.3; older engines silently ignore the filter.
 3. **Publish** — PyPI (`uvx memocat-mcp`) + Docker image. The stdio "deploy."
-4. **Zero-config auto-start** (§7.1) — tiered engine bootstrap. Ship as 0.2.
+4. **Zero-config auto-start** (§7.1) — tiered engine bootstrap. Ship as 0.4
+   (0.3 went to the real-time watch). Designed in
+   [AUTOSTART_PLAN.md](AUTOSTART_PLAN.md); tiers 1+3 are buildable now, tier 2
+   waits on a user-space binary archive (the `.pkg`/`.deb`/`.msi` installers
+   need admin rights and cannot be used unattended).
 5. **Discoverability blitz** — official MCP registry, Docker MCP catalog,
    awesome-mcp-servers PR, Smithery/Glama/mcp.so/PulseMCP + website wiring
    (`.well-known` card, agent-skills index, Link headers, `/mcp` landing page,

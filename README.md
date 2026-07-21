@@ -59,13 +59,35 @@ Subscriptions open on demand and close when idle
 
 ## Requirements
 
-- A running **Montycat Semantic** engine (semantic search is on by default there):
+- A running **Montycat Semantic** engine (semantic search is on by default there).
+
+  **Pick the tag for your CPU** — the tag carries the architecture:
+
+  **Apple Silicon (M1/M2/M3/M4) — use `arm64-semantic`:**
+  ```bash
+  docker run -d --name montycat -p 21210:21210 -p 21211:21211 \
+    -e MONTYCAT_SUPEROWNER="admin" -e MONTYCAT_PASSWORD="change-me" \
+    -v montycat_data:/var/lib/.montycat \
+    montygovernance/montycat:arm64-semantic
+  ```
+
+  **Intel / AMD (x86_64) — use `semantic`:**
   ```bash
   docker run -d --name montycat -p 21210:21210 -p 21211:21211 \
     -e MONTYCAT_SUPEROWNER="admin" -e MONTYCAT_PASSWORD="change-me" \
     -v montycat_data:/var/lib/.montycat \
     montygovernance/montycat:semantic
   ```
+
+  > On Apple Silicon the plain `semantic` tag is the amd64 image and runs under
+  > emulation, where the embedding runtime's warm-up crashes. Use
+  > `arm64-semantic` — a native build, not a workaround. Unsure which you have?
+  > `uname -m` prints `arm64` on Apple Silicon and `x86_64` on Intel.
+
+  Port `21211` is the subscription server and is required for
+  `memocat_await_memory_change` (real-time watch); without it the other tools
+  still work.
+
 - Python 3.10+ (via `uv` / `uvx`).
 
 ## Install & run

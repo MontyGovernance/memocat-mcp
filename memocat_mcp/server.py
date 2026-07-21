@@ -746,8 +746,24 @@ async def _run_stdio() -> None:
     path. If a future SDK exposes the capability properly, this collapses back
     to `mcp.run()`.
     """
+    import logging
+
     from mcp.server.lowlevel.server import NotificationOptions
     from mcp.server.stdio import stdio_server
+
+    from .bootstrap import BootstrapError, ensure_engine
+
+    # Make an engine available before serving: connect to one that is already
+    # running, else start it (AUTOSTART_PLAN.md). Logs go to stderr — stdout is
+    # the MCP transport and anything written there corrupts the protocol.
+    try:
+        tier = await ensure_engine()
+        if tier != "existing":
+            logging.getLogger("memocat").info("started Montycat engine via %s", tier)
+    except BootstrapError as exc:
+        # Fail with the instructions rather than serving tools that will all
+        # error one call later.
+        raise SystemExit(f"\n{exc}\n") from exc
 
     options = mcp._mcp_server.create_initialization_options(
         NotificationOptions(resources_changed=True)

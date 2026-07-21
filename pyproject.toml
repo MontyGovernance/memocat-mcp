@@ -1,6 +1,6 @@
 [project]
 name = "memocat-mcp"
-version = "0.3.0"
+version = "0.1.0"
 description = "MCP server for Montycat — self-hosted, semantically-searchable long-term memory for AI agents. Vector search + NoSQL in one engine, on-device embeddings, no external API."
 readme = "README.md"
 requires-python = ">=3.10"

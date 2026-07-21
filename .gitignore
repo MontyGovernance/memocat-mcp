@@ -16,4 +16,6 @@ uv.lock
 .DS_Store
 .idea/
 .vscode/
-__init__.py
+
+# tooling
+.pytest_cache/
