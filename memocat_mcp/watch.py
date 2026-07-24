@@ -27,7 +27,7 @@ import json
 import os
 import time
 from collections import deque
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 # The engine's own wording for the two change events, plus the handshake frame
 # it sends once when a subscription is established (which is not a change).
@@ -97,6 +97,9 @@ class MemoryWatch:
 
         self._task: Optional[asyncio.Task] = None
         self._stop: Optional[asyncio.Event] = None
+        self._auth_task: Optional[asyncio.Task] = None
+        self._authorize: Optional[Callable[[], Awaitable[Optional[str]]]] = None
+        self.revoked_error: Optional[str] = None
         # Set when the engine's "Subscription started" handshake arrives. Until
         # then the subscription is not proven live, and a caller that waits on
         # it would sit through its whole timeout learning nothing.
@@ -105,6 +108,7 @@ class MemoryWatch:
         # this to `session.send_resource_updated`. Kept as a plain callable so
         # this module never imports the MCP SDK.
         self.on_change: Optional[Callable[["MemoryWatch", dict], None]] = None
+        self.on_revoke: Optional[Callable[["MemoryWatch", str], None]] = None
 
     # ── engine side ──────────────────────────────────────────────────────────
 
@@ -135,20 +139,79 @@ class MemoryWatch:
             except Exception:
                 pass  # a broken notifier must not kill the subscription
 
-    async def start(self, keyspace_cls) -> None:
+    async def start(
+        self,
+        keyspace_cls,
+        authorize: Optional[Callable[[], Awaitable[Optional[str]]]] = None,
+    ) -> None:
         if self._task is not None:
             return
+        self._authorize = authorize
+        self.revoked_error = None
         port = _env_int("MONTYCAT_SUBSCRIPTION_PORT", 0) or None
         self._task, self._stop = await keyspace_cls.subscribe(
             callback=self._handle_frame, subscription_port=port
         )
+        if authorize is not None:
+            self._auth_task = asyncio.create_task(self._authorization_loop())
+
+    async def _authorization_loop(self) -> None:
+        """Re-check read authority because the engine authorizes only on open."""
+        interval = max(1, _env_int("MONTYCAT_WATCH_AUTH_LEASE_SEC", 5))
+        timeout = max(1, _env_int("MONTYCAT_WATCH_AUTH_TIMEOUT_SEC", 10))
+        while self._authorize is not None and self.running:
+            await asyncio.sleep(interval)
+            if not self.running:
+                return
+            try:
+                problem = await asyncio.wait_for(self._authorize(), timeout=timeout)
+            except Exception as exc:
+                problem = f"authorization revalidation failed: {type(exc).__name__}: {exc}"
+            if problem is not None:
+                await self.revoke(problem)
+                return
+
+    async def revoke(self, reason: str) -> None:
+        """Close after access loss and make buffered changes unreplayable."""
+        self.revoked_error = reason
+        self.established = False
+        self.changes.clear()
+        if self.on_revoke is not None:
+            try:
+                self.on_revoke(self, reason)
+            except Exception:
+                pass
+        if self._stop is not None:
+            self._stop.set()
+        task = self._task
+        self._task = None
+        self._stop = None
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+        for waiter in self.waiters:
+            if not waiter.done():
+                waiter.set_result(None)
+        self.waiters.clear()
 
     async def stop(self) -> None:
         """Release the engine subscription. Not optional — see module docstring:
         a lingering subscriber deadlocks later keyspace removal."""
         self.established = False
+        self._authorize = None
         if self._stop is not None:
             self._stop.set()
+        auth_task = self._auth_task
+        self._auth_task = None
+        if auth_task is not None and auth_task is not asyncio.current_task():
+            auth_task.cancel()
+            try:
+                await auth_task
+            except (asyncio.CancelledError, Exception):
+                pass
         task = self._task
         self._task = None
         self._stop = None
@@ -273,15 +336,22 @@ class WatchRegistry:
     def __init__(self):
         self._watches: dict[str, MemoryWatch] = {}
         self.on_change: Optional[Callable[[MemoryWatch, dict], None]] = None
+        self.on_revoke: Optional[Callable[[MemoryWatch, str], None]] = None
 
-    async def get_or_start(self, keyspace: str, keyspace_cls) -> MemoryWatch:
+    async def get_or_start(
+        self,
+        keyspace: str,
+        keyspace_cls,
+        authorize: Optional[Callable[[], Awaitable[Optional[str]]]] = None,
+    ) -> MemoryWatch:
         watch = self._watches.get(keyspace)
         if watch is None:
             watch = MemoryWatch(keyspace)
             watch.on_change = self.on_change
+            watch.on_revoke = self.on_revoke
             self._watches[keyspace] = watch
-        if not watch.running:
-            await watch.start(keyspace_cls)
+        if not watch.running and watch.revoked_error is None:
+            await watch.start(keyspace_cls, authorize=authorize)
         return watch
 
     def get(self, keyspace: str) -> Optional[MemoryWatch]:

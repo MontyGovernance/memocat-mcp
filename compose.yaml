@@ -19,8 +19,6 @@ services:
   mcp:
     build:
       context: .
-      additional_contexts:
-        montycat_client: ${MONTYCAT_CLIENT_PATH:?set MONTYCAT_CLIENT_PATH in .env}
     image: memocat-mcp:local
     environment:
       MONTYCAT_HOST: montycat

@@ -24,7 +24,9 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("MONTYCAT_HOME", str(tmp_path / "montycat"))
     for var in ("MONTYCAT_URI", "MEMOCAT_BINARY_URL", "MEMOCAT_AUTOSTART",
                 "MONTYCAT_USERNAME", "MONTYCAT_PASSWORD", "MONTYCAT_HOST",
-                "MONTYCAT_PORT", "MONTYCAT_STORE"):
+                "MONTYCAT_PORT", "MONTYCAT_STORE", "MEMOCAT_INSTALLER_URL",
+                "MEMOCAT_ENGINE_VERSION", "MEMOCAT_INSTALLER_TIMEOUT",
+                "MONTYCAT_SEMANTIC"):
         monkeypatch.delenv(var, raising=False)
     return tmp_path
 
@@ -57,15 +59,83 @@ def test_binary_url_override_wins(monkeypatch):
     assert bootstrap.resolve_binary_url() == "file:///tmp/engine.tar.gz"
 
 
+def test_apple_silicon_semantic_installer_url(monkeypatch):
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(bootstrap.platform, "machine", lambda: "arm64")
+    assert bootstrap.installer_url() == (
+        "https://downloads.montygovernance.com/macos/"
+        "montycat-semantic_1.2.3_arm64.pkg"
+    )
+
+
+def test_intel_mac_does_not_install_nonexistent_semantic_package(monkeypatch):
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(bootstrap.platform, "machine", lambda: "x86_64")
+    assert bootstrap.installer_url() is None
+
+
+def test_windows_installer_url_is_retained(monkeypatch):
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(bootstrap.platform, "machine", lambda: "AMD64")
+    assert bootstrap.installer_url() == (
+        "https://downloads.montygovernance.com/windows/"
+        "montycat-semantic_1.2.3.msi"
+    )
+
+
 @pytest.mark.parametrize(
-    ("system", "machine", "suffix"),
-    [("Darwin", "arm64", ".pkg"), ("Windows", "AMD64", ".msi")],
+    ("system", "machine", "listing", "expected"),
+    [
+        (
+            "Darwin",
+            "arm64",
+            """
+            <a href="montycat-semantic_1.9.9_arm64.pkg">old</a>
+            <a href="montycat-semantic_1.10.0_arm64.pkg">new</a>
+            <a href="montycat_9.0.0.pkg">base ignored</a>
+            """,
+            "https://downloads.montygovernance.com/macos/"
+            "montycat-semantic_1.10.0_arm64.pkg",
+        ),
+        (
+            "Windows",
+            "AMD64",
+            """
+            montycat-semantic_1.2.2.msi
+            montycat-semantic_1.3.0.msi
+            montycat_9.0.0.msi
+            """,
+            "https://downloads.montygovernance.com/windows/"
+            "montycat-semantic_1.3.0.msi",
+        ),
+    ],
 )
-def test_desktop_installer_url(monkeypatch, system, machine, suffix):
+def test_latest_semantic_installer_is_discovered_numerically(
+    monkeypatch, system, machine, listing, expected
+):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return listing.encode()
+
     monkeypatch.setattr(bootstrap.platform, "system", lambda: system)
     monkeypatch.setattr(bootstrap.platform, "machine", lambda: machine)
-    assert bootstrap.installer_url() is not None
-    assert bootstrap.installer_url().endswith(suffix)
+    monkeypatch.setattr(
+        bootstrap.urllib.request, "urlopen", lambda *_args, **_kwargs: Response()
+    )
+
+    assert bootstrap._discover_latest_installer_url() == expected
+
+
+@pytest.mark.asyncio
+async def test_latest_discovery_failure_does_not_install_stale_fallback(monkeypatch):
+    monkeypatch.setattr(bootstrap, "_discover_latest_installer_url", lambda: None)
+    assert await bootstrap.download_installer() is None
 
 
 @pytest.mark.asyncio
@@ -161,6 +231,50 @@ async def test_unavailable_artifact_falls_through_quietly(tmp_path, monkeypatch)
     error the user should see."""
     monkeypatch.setenv("MEMOCAT_BINARY_URL", f"file://{tmp_path}/does-not-exist.tar.gz")
     assert await bootstrap.download_binary() is None
+
+
+@pytest.mark.asyncio
+async def test_macos_installer_is_verified_cached_and_reused(tmp_path, monkeypatch):
+    package = tmp_path / "montycat-semantic_1.2.3_arm64.pkg"
+    package.write_bytes(b"signed package placeholder")
+    digest = hashlib.sha256(package.read_bytes()).hexdigest()
+    (tmp_path / f"{package.name}.sha256").write_text(f"{digest}  {package.name}\n")
+    monkeypatch.setenv("MEMOCAT_INSTALLER_URL", f"file://{package}")
+
+    first = await bootstrap.download_installer()
+    assert first is not None and first.read_bytes() == package.read_bytes()
+    package.unlink()
+    second = await bootstrap.download_installer()
+
+    assert second == first
+
+
+@pytest.mark.asyncio
+async def test_macos_installer_waits_until_binary_is_installed(tmp_path, monkeypatch):
+    package = tmp_path / "engine.pkg"
+    package.write_bytes(b"package")
+    installed = tmp_path / "montycat_bin"
+    checks = iter([None, installed])
+    launched = {}
+
+    async def fake_download():
+        return package
+
+    async def no_wait(_seconds):
+        return None
+
+    def fake_run(command, **_kwargs):
+        launched["command"] = command
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(bootstrap, "download_installer", fake_download)
+    monkeypatch.setattr(bootstrap, "find_installed_binary", lambda: next(checks))
+    monkeypatch.setattr(bootstrap.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
+
+    assert await bootstrap.install_desktop_package() is True
+    assert launched["command"] == ["open", str(package)]
 
 
 @pytest.mark.asyncio

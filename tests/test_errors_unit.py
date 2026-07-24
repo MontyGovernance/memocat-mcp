@@ -151,6 +151,104 @@ async def test_failed_explicit_creation_does_not_poison_keyspace_type_cache(serv
 
 
 @pytest.mark.asyncio
+async def test_create_keyspace_prefers_storage_and_keeps_persistent_compatibility(
+    server, monkeypatch
+):
+    calls = []
+
+    class FakeKeyspace:
+        async def create_keyspace(self, **kwargs):
+            calls.append(kwargs)
+            return {"status": True, "payload": "created", "error": None}
+
+    def fake_keyspace(name, persistent=None):
+        calls.append((name, persistent))
+        return FakeKeyspace()
+
+    server._ks_type_cache.clear()
+    monkeypatch.setattr(server, "_keyspace", fake_keyspace)
+
+    result = await server.memocat_create_keyspace(
+        keyspace="working", storage="inmemory"
+    )
+    legacy = await server.memocat_create_keyspace(
+        keyspace="durable", persistent=True, cache=20, compression=True
+    )
+
+    assert result["status"] is True
+    assert legacy["status"] is True
+    assert calls == [
+        ("working", False),
+        {},
+        ("durable", True),
+        {"cache": 20, "compression": True},
+    ]
+    assert server._ks_type_cache["working"] is False
+    assert server._ks_type_cache["durable"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_keyspace_rejects_invalid_or_conflicting_schema_before_engine(
+    server,
+):
+    with pytest.raises(ValueError, match="non-empty"):
+        await server.memocat_create_keyspace(keyspace=" ")
+    with pytest.raises(ValueError, match="persistent.*inmemory"):
+        await server.memocat_create_keyspace(keyspace="k", storage="disk")
+    with pytest.raises(ValueError, match="conflicting"):
+        await server.memocat_create_keyspace(
+            keyspace="k", storage="inmemory", persistent=True
+        )
+    with pytest.raises(ValueError, match="only for persistent"):
+        await server.memocat_create_keyspace(
+            keyspace="k", storage="inmemory", cache=10
+        )
+    with pytest.raises(ValueError, match="semantic_model"):
+        await server.memocat_create_keyspace(
+            keyspace="k", semantic_model="not-a-model"
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_keyspace_can_enable_scoped_semantic_search(server, monkeypatch):
+    class FakeKeyspace:
+        async def create_keyspace(self, **_kwargs):
+            return {"status": True, "payload": "created", "error": None}
+
+    class FakeEngine:
+        store = "memories"
+
+        def __init__(self):
+            self.semantic_call = None
+
+        async def enable_semantic_search(self, **kwargs):
+            self.semantic_call = kwargs
+            return {
+                "status": True,
+                "payload": {"model": kwargs["model"].value},
+                "error": None,
+            }
+
+    engine = FakeEngine()
+    server._ks_type_cache.clear()
+    monkeypatch.setattr(server, "_engine", engine)
+    monkeypatch.setattr(server, "_keyspace", lambda *_args, **_kwargs: FakeKeyspace())
+
+    result = await server.memocat_create_keyspace(
+        keyspace="research",
+        storage="persistent",
+        semantic_model="bge-small",
+    )
+
+    assert result["status"] is True
+    assert result["payload"]["semantic"] is True
+    assert result["payload"]["semantic_model"] == "bge-small"
+    assert engine.semantic_call["store"] == "memories"
+    assert engine.semantic_call["keyspace"] == "research"
+    assert engine.semantic_call["model"].value == "bge-small"
+
+
+@pytest.mark.asyncio
 async def test_every_tool_reports_failure_when_the_engine_is_unreachable(server, monkeypatch):
     """End-to-end shape check: with no engine, each tool must return a failure
     envelope — never a bare `"Error: ..."` string, which an agent would read as
@@ -168,7 +266,18 @@ async def test_every_tool_reports_failure_when_the_engine_is_unreachable(server,
         "recall": server.memocat_recall(keyspace="k", key="1"),
         "list_memories": server.memocat_list_memories(keyspace="k"),
         "list_keyspaces": server.memocat_list_keyspaces(),
+        "policy_view": server.memocat_policy_view(),
+        "policy_history": server.memocat_policy_history(),
+        "policy_explain": server.memocat_policy_explain(
+            capability="manage-semantic"
+        ),
         "create_keyspace": server.memocat_create_keyspace(keyspace="k"),
+        "remove_keyspace": server.memocat_remove_keyspace(keyspace="k"),
+        "enable_semantic": server.memocat_enable_semantic(keyspace="k"),
+        "disable_semantic": server.memocat_disable_semantic(keyspace="k"),
+        "start_snapshots": server.memocat_start_snapshots(keyspace="k"),
+        "stop_snapshots": server.memocat_stop_snapshots(keyspace="k"),
+        "clean_snapshots": server.memocat_clean_snapshots(keyspace="k"),
         "update": server.memocat_update(updates={"a": 2}, keyspace="k", key="1"),
         "forget": server.memocat_forget(keyspace="k", key="1"),
         "await_change": server.memocat_await_memory_change(keyspace="k", timeout_sec=2),

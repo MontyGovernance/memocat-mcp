@@ -1,13 +1,13 @@
 # Zero-config auto-start — plan
 
-> **Superseded distribution decision (current implementation):** detect an
-> existing `montycat_bin` first; otherwise macOS/Windows invoke verified desktop
-> packages from `downloads.montygovernance.com`, Linux invokes the official APT
-> package when configured, and every unsuccessful path falls through to Docker.
-> The archive-only proposal below remains historical until the downloads site
-> publishes a signed installer manifest and final names.
+> **Current implementation:** detect an existing `montycat_bin` first;
+> otherwise Apple Silicon and Windows discover the numerically latest Semantic
+> package from their platform download index, verify its adjacent checksum,
+> invoke Installer, and wait for the installed binary. Linux invokes
+> the official APT package when configured, and unsuccessful paths fall through
+> to Docker. The archive-only proposal below remains the future unattended path.
 
-**Status:** not built · target release **0.4** · PLAN.md §7.1 / milestone 4
+**Status:** built and tested · PLAN.md §7.1 / milestone 4
 
 ## Why
 

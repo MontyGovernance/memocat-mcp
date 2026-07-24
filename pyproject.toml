@@ -1,30 +1,52 @@
 [project]
 name = "memocat-mcp"
-version = "0.1.0"
-description = "MCP server for Montycat — self-hosted, semantically-searchable long-term memory for AI agents. Vector search + NoSQL in one engine, on-device embeddings, no external API."
+version = "0.4.0"
+description = "MCP server for self-hosted AI agent memory, semantic search, vector RAG, and Montycat."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "MontyGovernance" }]
+maintainers = [{ name = "MontyGovernance" }]
 keywords = [
     "mcp",
+    "mcp-server",
     "model-context-protocol",
     "montycat",
     "vector-database",
+    "vector-search",
     "semantic-search",
     "rag",
+    "retrieval-augmented-generation",
     "ai-memory",
     "agent-memory",
+    "long-term-memory",
+    "memory-server",
+    "ai-agents",
     "llm",
     "nosql",
+    "embeddings",
+    "self-hosted",
+    "fastmcp",
+    "claude",
+    "cursor",
+    "data-governance",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Framework :: AsyncIO",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
     # Upper bound is deliberate: the real-time watch surface reaches into SDK
@@ -33,9 +55,10 @@ dependencies = [
     # handlers). A major bump must be re-verified rather than silently dropping
     # push support — see memocat_mcp/watch.py and server.py `_run_stdio`.
     "mcp[cli]>=1.2.0,<2",
-    # 1.0.7 adds semantic_search_get_{keys,values}_where — the hybrid
-    # metadata/time pre-filter memocat_semantic_search depends on.
-    "montycat>=1.0.7",
+    # 1.0.8 is the first publishable SDK release expected to include both the
+    # hybrid `_where` methods and typed governance/keyspace-scoped semantic API.
+    # PyPI's 1.0.7 has hybrid search but not the governance surface.
+    "montycat>=1.0.8,<2",
 ]
 
 [project.scripts]
@@ -44,7 +67,9 @@ memocat-mcp = "memocat_mcp.server:main"
 [project.urls]
 Homepage = "https://montygovernance.com"
 Documentation = "https://montygovernance.com/docs"
-Source = "https://github.com/MontyGovernance/meow_memory_mcp"
+Repository = "https://github.com/MontyGovernance/meow_memory_mcp"
+Issues = "https://github.com/MontyGovernance/meow_memory_mcp/issues"
+Changelog = "https://github.com/MontyGovernance/meow_memory_mcp/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
@@ -52,6 +77,19 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["memocat_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/memocat_mcp",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/PUBLISHING.md",
+    "/pyproject.toml",
+    "/Dockerfile",
+    "/compose.yaml",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8", "pytest-asyncio>=0.24"]

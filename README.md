@@ -1,22 +1,45 @@
-#Memocat — MCP Server for Montycat
+# MemoCat MCP Server — Self-Hosted AI Agent Memory and Vector RAG
 
-**Give your AI agents self-hosted, semantically-searchable long-term memory.**
-`memocat-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
-server for [Montycat](https://montygovernance.com) — a Rust-powered vector
-database and NoSQL store in one engine. Agents *remember* facts and *recall*
-them by meaning (vector search) or by key, on your own hardware, with on-device
-embeddings and no external API.
+**Give Claude, Cursor, and other MCP clients private, persistent, semantically
+searchable long-term memory.** `memocat-mcp` is a
+[Model Context Protocol](https://modelcontextprotocol.io) server for
+[Montycat](https://montygovernance.com), combining AI agent memory, semantic
+search, vector RAG, and NoSQL storage in one self-hosted service.
 
-No cloud vector database. No embedding service. No per-query bill. Your memory,
-your machine.
+Memories are embedded on-device and recalled by meaning, metadata, timestamp,
+or exact key. No cloud vector database, external embedding API, or per-query
+bill.
+
+## Features
+
+- Self-hosted long-term memory for MCP-compatible AI agents.
+- Semantic vector search with metadata and time-range filtering for RAG.
+- Persistent memory, in-memory working spaces, bulk writes, updates, and deletion.
+- Real-time memory-change subscriptions without database polling.
+- Multi-agent scopes, shared memory, delegated-owner governance, and policy explanations.
+- Keyspace lifecycle, semantic-model controls, snapshots, and revocation-safe watch buffers.
+- One-command `uvx memocat-mcp` entry point with native/Docker engine bootstrap.
 
 ## Why
 
-LLM agents forget everything between runs. Bolt on Montycat and they don't:
-every fact your agent stores is embedded and indexed automatically, then
-recalled by meaning through a handful of MCP tools. It is the retrieval layer
-for RAG and the memory layer for agents — one self-hosted engine, not a stack of
-rented services.
+LLM agents forget context between runs. MemoCat stores each fact in Montycat,
+embeds and indexes it automatically, and retrieves relevant memories through 19
+agent-readable MCP tools. It is both a retrieval layer for RAG and a durable
+memory layer for autonomous agents.
+
+## Quick start
+
+```bash
+uvx memocat-mcp
+```
+
+MemoCat reuses a configured Montycat Semantic engine or attempts the supported
+native/Docker bootstrap path. For an existing engine:
+
+```bash
+export MONTYCAT_URI="montycat://memory-agent:password@localhost:21210/memories"
+uvx memocat-mcp
+```
 
 ## Tools
 
@@ -31,6 +54,15 @@ rented services.
 | `memocat_forget` | Delete a stored record. |
 | `memocat_list_keyspaces` | Discover available memory namespaces. |
 | `memocat_create_keyspace` | Provision a new memory namespace. |
+| `memocat_remove_keyspace` | Permanently remove an authorized memory namespace with safe watch cleanup. |
+| `memocat_enable_semantic` | Enable semantic search and backfill one authorized keyspace. |
+| `memocat_disable_semantic` | Disable semantic search for one authorized keyspace. |
+| `memocat_start_snapshots` | Start scheduled snapshots for one authorized in-memory keyspace. |
+| `memocat_stop_snapshots` | Stop scheduled snapshots for one authorized in-memory keyspace. |
+| `memocat_clean_snapshots` | Delete snapshot files for one authorized in-memory keyspace. |
+| `memocat_policy_view` | View the configured owner's effective governance policy and constraints. |
+| `memocat_policy_explain` | Explain whether a proposed governed action is allowed and why. |
+| `memocat_policy_history` | View governance history visible to the configured owner. |
 | `memocat_await_memory_change` | **Wait for memory to change** — returns the moment another agent or session writes. Live subscription, not polling. |
 
 ## Real-time memory watch
@@ -90,14 +122,6 @@ Subscriptions open on demand and close when idle
 
 - Python 3.10+ (via `uv` / `uvx`).
 
-## Install & run
-
-```bash
-uvx memocat-mcp
-```
-
-Configure the connection with environment variables (see below).
-
 ## Docker Compose deployment
 
 Use Compose when you want a reproducible local deployment with a persistent
@@ -112,8 +136,6 @@ MONTYCAT_PASSWORD=replace-with-a-strong-password
 MONTYCAT_STORE=memories
 # Apple Silicon: arm64-semantic. Intel/AMD64: semantic.
 MONTYCAT_IMAGE_TAG=semantic
-# Local checkout containing the unpublished montycat 1.0.7 client.
-MONTYCAT_CLIENT_PATH=/absolute/path/to/montycat_python
 ```
 
 Start the engine and build the MCP image:
@@ -123,11 +145,8 @@ docker compose up -d montycat
 docker compose build mcp
 ```
 
-`montycat` 1.0.7 is currently local-only and provides the required hybrid
-semantic-search methods. The image installs it from `MONTYCAT_CLIENT_PATH`
-through Compose's named build context; this is intentional and never falls back
-to an older PyPI client. Once 1.0.7 is published, replace that local context
-with a pinned published dependency before distributing the image externally.
+The image installs the released `montycat>=1.0.8,<2` Python client declared in
+the package metadata.
 
 The engine data is stored in the named `montycat_data` volume. Ports `21210`
 and `21211` are published for debugging and external clients; the MCP container
@@ -166,14 +185,20 @@ host/port settings. If none is running, it looks for an installed
 
 | Platform | Route | If it cannot complete |
 |---|---|---|
-| macOS | Download verified `.pkg` installer and open it (may prompt for admin approval) | Docker |
+| macOS Apple Silicon | Discover and download the latest verified `montycat-semantic_<version>_arm64.pkg`, open Installer, and wait for installation (may prompt for admin approval) | Docker |
+| macOS Intel | No Semantic package currently published | Docker |
 | Windows x86_64 | Download verified `.msi` and invoke Windows Installer (may prompt for UAC) | Docker |
 | Linux AMD64 | Run the official one-command APT setup for `montycat-semantic` (may prompt for sudo) | Docker |
 | Other platforms | — | Docker |
 
-The package URLs currently use a temporary predictable naming convention while
-the downloads site publishes its installer manifest. Override it with
-`MEMOCAT_INSTALLER_URL` if needed. On Linux, set
+MemoCat scans the macOS or Windows download index and numerically selects the
+highest stable Semantic package. The package's adjacent `.sha256` is required
+and verified before Installer opens; verified packages are cached by filename.
+If latest-version discovery is unavailable, automatic native installation
+falls through to Docker instead of silently installing an older package.
+Override the URL with `MEMOCAT_INSTALLER_URL`, pin a release with
+`MEMOCAT_ENGINE_VERSION`, or adjust the Installer completion budget with
+`MEMOCAT_INSTALLER_TIMEOUT`. On Linux, set
 `MEMOCAT_APT_INSTALL_COMMAND` to use an organization-managed mirror or package
 command. ARM64 Linux goes directly to Docker because the official APT repository
 is AMD64-only. Set `MEMOCAT_AUTOSTART=off` to disable all installation/start
@@ -190,12 +215,46 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`):
       "command": "uvx",
       "args": ["memocat-mcp"],
       "env": {
-        "MONTYCAT_URI": "montycat://admin:change-me@localhost:21210/mystore"
+        "MONTYCAT_URI": "montycat://memory-agent:agent-password@localhost:21210/mystore"
       }
     }
   }
 }
 ```
+
+Use a delegated Montycat owner such as `memory-agent` for the MCP process.
+Grant that owner only the keyspace read/write and provisioning capabilities its
+agent needs. Keep the superowner credential in a separate bootstrap or
+governance-administration workflow.
+
+The read-only `memocat_policy_view`, `memocat_policy_explain`, and
+`memocat_policy_history` tools expose policy information for the authenticated
+owner. They do not accept an owner override and cannot grant, revoke, deny, or
+otherwise mutate policy. When automatic keyspace provisioning fails, MemoCat
+also requests a read-only policy explanation and appends it to the original
+engine error when available.
+
+`memocat_remove_keyspace` is destructive and remains engine-authorized. A
+delegated owner may remove a keyspace through creator authority or an explicit
+`remove-keyspace` grant unless policy contains an overriding denial. MemoCat
+closes active watches and releases resource subscriptions before requesting
+removal.
+
+Semantic management is always keyspace-scoped. The MCP server does not expose
+database-wide semantic controls; Montycat checks `manage-semantic`, creator
+authority, denials, and model allow-lists for every enable or disable request.
+
+Snapshot tools are likewise keyspace-scoped and work only with in-memory
+keyspaces. MemoCat does not expose the global snapshot-rate setting. A
+`Snapshot rate is not set` response means scheduling has not been configured
+on the engine; it is distinct from a governance denial.
+
+Active watches use short authorization leases because the current engine checks
+read authority when a subscription opens but does not terminate that connection
+after a later revocation. MemoCat revalidates against the engine's filtered
+structure view, closes the subscription on access loss, removes MCP resource
+ownership, wakes pending callers with an error, and permanently purges buffered
+changes so they cannot be replayed after access is restored.
 
 ## Configuration
 
@@ -212,13 +271,18 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`):
 | `MONTYCAT_SCOPE` | — | Default owner/scope, applied when a tool omits `scope` |
 | `MONTYCAT_SCOPE_PREFIX` | `mem_` | Prefix for per-owner keyspaces (`mem_<scope>`) |
 | `MONTYCAT_SHARED_KEYSPACE` | `mem_shared` | The common/shared keyspace name |
-| `MONTYCAT_AUTO_PROVISION` | `true` | Auto-create a scope's keyspace on first use (needs superowner) |
+| `MONTYCAT_AUTO_PROVISION` | `true` | Auto-create a scope's keyspace on first use. Requires `provision-keyspace` authority for the configured owner and requested storage/model constraints. |
 | `MONTYCAT_AUTO_TIMESTAMP` | `true` | Stamp each memory with an indexed `_created_at`, enabling time-range recall (`since`/`until`). Costs a server-side timestamp parse per write — turn off if memories are never recalled by time. |
 | `MONTYCAT_SUBSCRIPTION_PORT` | main + 1 | Engine subscription server port (21211 by default; enabled by default) |
 | `MONTYCAT_WATCH_BUFFER` | `500` | Changes retained per watched keyspace, so changes between calls aren't lost |
 | `MONTYCAT_WATCH_IDLE_TIMEOUT` | `300` | Seconds before an unused subscription is closed |
+| `MONTYCAT_WATCH_AUTH_LEASE_SEC` | `5` | Seconds between read-authority checks for active watches. Access loss closes the subscription and purges buffered changes. |
+| `MONTYCAT_WATCH_AUTH_TIMEOUT_SEC` | `10` | Maximum seconds allowed for one watch authorization check. A failed check closes the watch safely. |
 
-`memocat_create_keyspace` and `memocat_forget` require superowner credentials.
+`memocat_create_keyspace` works with delegated-owner credentials when policy
+grants `provision-keyspace` for the requested store, storage type, and semantic
+model. `memocat_forget` deletes one record and requires write authority for its
+keyspace. The engine makes every final authorization decision.
 
 ## Memory scoping (multi-tenant)
 
@@ -234,18 +298,21 @@ remember(value={"fact": "..."}, scope="shared")      # -> the shared keyspace
 ```
 
 - **Per-owner private memory** — `scope="<owner>"` → `mem_<owner>`, auto-created
-  on first use (with superowner creds).
+  on first use when the configured owner has provisioning authority.
 - **Shared/common memory** — `scope="shared"` → the `MONTYCAT_SHARED_KEYSPACE`.
 - **Group memory** — use a group id as the scope (e.g. `scope="team_eng"`).
 - **Single-tenant** — set `MONTYCAT_SCOPE` once and omit `scope` per call.
 
-This maps onto Montycat's per-keyspace RBAC: `grant_to(owner, permission,
-keyspaces=["mem_alice"])` gives an owner access to only their keyspace.
+This maps onto Montycat's keyspace governance. In production, run one server
+instance per agent or service with delegated-owner credentials and grant only
+the provisioning and data authority it needs.
 
-**Isolation note:** with one server instance sharing one connection, scoping is
-*logical* isolation (by keyspace). For **credential-enforced** isolation, run one
-server instance per owner, each connecting with that owner's own credentials —
-then the engine itself denies cross-owner access.
+**Isolation note:** `scope` is routing convenience, not authenticated identity.
+With one server instance sharing one connection, scopes provide logical
+keyspace organization. For credential-enforced isolation, run one server
+instance per owner with that owner's delegated credentials; the engine then
+denies cross-owner access. Reserve superowner credentials for bootstrap and
+governance administration.
 
 ## Links
 

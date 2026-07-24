@@ -229,3 +229,77 @@ async def test_handshake_marks_the_subscription_established():
         assert await watch.ensure_established(grace=5) is None
     finally:
         watch._task.cancel()
+
+
+# ── authorization leases ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_revocation_purges_buffer_stops_reader_and_wakes_waiter():
+    watch = MemoryWatch("private")
+    watch._handle_frame(upsert("secret", '{"text":"buffered"}'))
+    watch._task = asyncio.create_task(asyncio.sleep(30))
+    watch._stop = asyncio.Event()
+    waiter = asyncio.create_task(watch.wait(since_seq=watch.seq, timeout=30))
+    await asyncio.sleep(0)
+
+    await watch.revoke("read permission revoked")
+
+    assert watch.revoked_error == "read permission revoked"
+    assert list(watch.changes) == []
+    assert watch.running is False
+    assert await asyncio.wait_for(waiter, timeout=1) == []
+    assert watch.waiters == []
+
+
+@pytest.mark.asyncio
+async def test_authorization_lease_revokes_automatically(monkeypatch):
+    class Keyspace:
+        @classmethod
+        async def subscribe(cls, callback, subscription_port=None):
+            del callback, subscription_port
+            return asyncio.create_task(asyncio.sleep(30)), asyncio.Event()
+
+    checks = 0
+
+    async def denied():
+        nonlocal checks
+        checks += 1
+        return "read authority no longer includes keyspace"
+
+    monkeypatch.setenv("MONTYCAT_WATCH_AUTH_LEASE_SEC", "1")
+    watch = MemoryWatch("private")
+    watch._handle_frame(upsert("secret", '{"text":"buffered"}'))
+    await watch.start(Keyspace, authorize=denied)
+
+    deadline = asyncio.get_running_loop().time() + 3
+    while watch.revoked_error is None and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.05)
+
+    assert checks == 1
+    assert watch.revoked_error is not None
+    assert list(watch.changes) == []
+    assert watch.running is False
+    await watch.stop()
+
+
+@pytest.mark.asyncio
+async def test_registry_does_not_restart_a_revoked_watch():
+    from memocat_mcp.watch import WatchRegistry
+
+    class Keyspace:
+        starts = 0
+
+        @classmethod
+        async def subscribe(cls, callback, subscription_port=None):
+            del callback, subscription_port
+            cls.starts += 1
+            return asyncio.create_task(asyncio.sleep(30)), asyncio.Event()
+
+    registry = WatchRegistry()
+    watch = await registry.get_or_start("private", Keyspace)
+    await watch.revoke("denied")
+    same = await registry.get_or_start("private", Keyspace)
+
+    assert same is watch
+    assert Keyspace.starts == 1
+    await registry.stop_all()

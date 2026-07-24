@@ -61,9 +61,23 @@ async def test_advertises_resource_subscription():
 
 async def test_tools_are_listed_under_the_memocat_name():
     async with mcp_session() as (client, _):
-        names = [t.name for t in (await client.list_tools()).tools]
+        tools = (await client.list_tools()).tools
+        names = [t.name for t in tools]
         assert "memocat_semantic_search" in names
         assert "memocat_await_memory_change" in names
+        assert "memocat_policy_view" in names
+        assert "memocat_policy_explain" in names
+        assert "memocat_policy_history" in names
+        assert "memocat_remove_keyspace" in names
+        assert "memocat_enable_semantic" in names
+        assert "memocat_disable_semantic" in names
+        assert "memocat_start_snapshots" in names
+        assert "memocat_stop_snapshots" in names
+        assert "memocat_clean_snapshots" in names
+        policy_view = next(t for t in tools if t.name == "memocat_policy_view")
+        policy_history = next(t for t in tools if t.name == "memocat_policy_history")
+        assert "owner" not in policy_view.inputSchema.get("properties", {})
+        assert "owner" not in policy_history.inputSchema.get("properties", {})
         assert not any(n.startswith("montycat_") for n in names), \
             "leftover pre-rename tool names"
 

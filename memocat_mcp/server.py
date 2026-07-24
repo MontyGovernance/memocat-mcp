@@ -25,7 +25,8 @@ Connection is configured from the environment:
     MONTYCAT_SCOPE_PREFIX       default "mem_" — per-owner keyspace prefix
     MONTYCAT_SHARED_KEYSPACE    default "mem_shared" — the common/shared keyspace
     MONTYCAT_AUTO_PROVISION     "true"/"false", default true — create a scope's
-                                keyspace on first use (needs superowner creds)
+                                keyspace on first use (requires provisioning
+                                authority for the configured owner)
     MONTYCAT_AUTO_TIMESTAMP     "true"/"false", default true — stamp each memory
                                 with an indexed `_created_at`, enabling
                                 time-range recall (`since`/`until`). Costs a
@@ -40,6 +41,8 @@ Connection is configured from the environment:
                                 keyspace, so changes between calls aren't lost
     MONTYCAT_WATCH_IDLE_TIMEOUT default 300 (seconds) — close a subscription
                                 nobody is waiting on
+    MONTYCAT_WATCH_AUTH_LEASE_SEC default 5 — revalidate read authority for
+                                active watches; access loss purges the buffer
 
 Scoping: pass `scope` (an owner/user id) to any memory tool and it targets that
 owner's private keyspace `mem_<scope>` — isolated semantic recall per owner. The
@@ -58,13 +61,21 @@ agent can be *told* its memory changed instead of polling — see `watch.py` and
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
-from montycat import Engine, Keyspace, Timestamp
+from montycat import (
+    Engine,
+    Keyspace,
+    PolicyCapability,
+    PolicyKeyspaceType,
+    SemanticModel,
+    Timestamp,
+)
 
 from .watch import registry as watch_registry
 
@@ -328,9 +339,44 @@ async def _ensure_keyspace(name: str, persistent: bool) -> bool:
         detected = None
     if detected is not None:
         return detected
+    original_error = result.get("error") or "unknown engine error"
+    explanation = await _explain_provision_failure(name, persistent)
+    detail = f" Policy explanation: {json.dumps(explanation, default=str)}" \
+        if explanation is not None else ""
     raise KeyspaceBindingError(
-        f"Could not auto-provision keyspace {name!r}: {result.get('error') or 'unknown engine error'}"
+        f"Could not auto-provision keyspace {name!r}: {original_error}.{detail}"
     )
+
+
+async def _explain_provision_failure(name: str, persistent: bool) -> Optional[Any]:
+    """Best-effort policy context for a failed automatic keyspace creation.
+
+    The create attempt always happens first and its error remains primary.
+    Explanation is read-only and advisory; failure to obtain it must never
+    replace or hide the authoritative provisioning result.
+    """
+    try:
+        engine = _get_engine()
+        if not engine.store:
+            return None
+        result = await _call(engine.policy_explain(
+            capability=PolicyCapability.PROVISION_KEYSPACE,
+            store=engine.store,
+            keyspace=name,
+            keyspace_type=(
+                PolicyKeyspaceType.PERSISTENT
+                if persistent
+                else PolicyKeyspaceType.IN_MEMORY
+            ),
+            model=None,
+        ))
+        if isinstance(result, dict) and result.get("status") is not False:
+            return result.get("payload", result)
+    except Exception:
+        # Compatibility with older clients/engines: the original create error
+        # remains sufficient and must not be masked by explanation failure.
+        pass
+    return None
 
 
 async def _bind(name: Optional[str] = None, persistent: Optional[bool] = None):
@@ -512,30 +558,396 @@ async def memocat_list_keyspaces() -> Any:
 
 
 @mcp.tool()
+async def memocat_policy_view(store: Optional[str] = None) -> Any:
+    """View the configured owner's effective Montycat governance policy.
+
+    This is read-only. It reports the authenticated owner's effective grants,
+    denials, accessible and owned keyspaces, automatic creator capabilities,
+    provisioning constraints, and policy health. The engine filters the result
+    and remains the authorization boundary.
+
+    Args:
+        store: Optional store to inspect. Defaults to the store configured by
+               MONTYCAT_URI or MONTYCAT_STORE.
+    """
+    engine = _get_engine()
+    store = store or engine.store
+    return await _call(engine.policy_view(store=store))
+
+
+@mcp.tool()
+async def memocat_policy_history(
+    store: Optional[str] = None,
+    keyspace: Optional[str] = None,
+) -> Any:
+    """View governance history visible to the configured owner.
+
+    This is read-only and owner-scoped by the authenticated Montycat
+    credential. It can show when authority was delegated, denied, revoked, or
+    transferred without allowing the MCP caller to select another owner.
+
+    Args:
+        store: Optional store filter. Defaults to the configured store.
+        keyspace: Optional keyspace filter.
+    """
+    engine = _get_engine()
+    store = store or engine.store
+    if keyspace and not store:
+        raise ValueError(
+            "store is required when filtering policy history by keyspace."
+        )
+    return await _call(engine.policy_history(store=store, keyspace=keyspace))
+
+
+@mcp.tool()
+async def memocat_policy_explain(
+    capability: str,
+    store: Optional[str] = None,
+    keyspace: Optional[str] = None,
+    storage: Optional[str] = None,
+    semantic_model: Optional[str] = None,
+) -> Any:
+    """Explain whether the configured owner may perform a proposed action.
+
+    This is a read-only policy check for planning and diagnostics; executing
+    the action still requires a separate tool call and fresh engine
+    authorization. The explanation identifies applicable grants, denials,
+    creator authority, and storage/model constraints.
+
+    Args:
+        capability: One of "provision-keyspace", "remove-keyspace",
+                    "manage-snapshots", "manage-semantic", "manage-schema",
+                    or "manage-access".
+        store: Target store. Defaults to the configured store.
+        keyspace: Optional target keyspace.
+        storage: Optional keyspace type: "persistent", "inmemory", or
+                 "distributed".
+        semantic_model: Optional model constraint: "minilm", "bge-small",
+                        "bge-base", or "e5-small".
+    """
+    try:
+        typed_capability = PolicyCapability(capability)
+    except ValueError as exc:
+        allowed = ", ".join(item.value for item in PolicyCapability)
+        raise ValueError(f"capability must be one of: {allowed}.") from exc
+
+    typed_storage = None
+    if storage is not None:
+        try:
+            typed_storage = PolicyKeyspaceType(storage)
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in PolicyKeyspaceType)
+            raise ValueError(f"storage must be one of: {allowed}.") from exc
+
+    typed_model = None
+    if semantic_model is not None:
+        try:
+            typed_model = SemanticModel(semantic_model)
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in SemanticModel)
+            raise ValueError(f"semantic_model must be one of: {allowed}.") from exc
+
+    engine = _get_engine()
+    store = store or engine.store
+    if not store:
+        raise ValueError(
+            "store is required when MONTYCAT_URI/MONTYCAT_STORE does not configure one."
+        )
+    return await _call(engine.policy_explain(
+        capability=typed_capability,
+        store=store,
+        keyspace=keyspace,
+        keyspace_type=typed_storage,
+        model=typed_model,
+    ))
+
+
+@mcp.tool()
 async def memocat_create_keyspace(
     keyspace: str,
-    persistent: bool = True,
+    storage: Optional[str] = None,
+    semantic: bool = False,
+    semantic_model: Optional[str] = None,
+    persistent: Optional[bool] = None,
     cache: Optional[int] = None,
     compression: bool = False,
 ) -> Any:
-    """Create a new memory namespace (keyspace). Requires superowner credentials.
+    """Create a new memory namespace using the configured owner's authority.
+
+    A delegated owner can create a keyspace when its governance policy grants
+    `provision-keyspace` for the requested store, storage type, and semantic
+    model. The engine remains the final authorization boundary.
 
     Args:
         keyspace: Name of the keyspace to create.
-        persistent: True for durable on-disk storage, False for in-memory.
+        storage: Preferred storage type: "persistent" or "inmemory". Defaults
+                 to "persistent".
+        semantic: Enable semantic search for this keyspace after creation.
+        semantic_model: Optional embedding model: "minilm", "bge-small",
+                        "bge-base", or "e5-small". Supplying a model implies
+                        semantic=True.
+        persistent: Deprecated compatibility option. True maps to
+                    storage="persistent"; False maps to storage="inmemory".
         cache: Optional cache size in MB (persistent only; min/default 10).
         compression: Enable compression (persistent only).
     """
-    ks = _keyspace(keyspace, persistent=persistent)
-    if persistent:
+    if not isinstance(keyspace, str) or not keyspace.strip():
+        raise ValueError("keyspace must be a non-empty string.")
+
+    valid_storage = {"persistent", "inmemory"}
+    if storage is not None and storage not in valid_storage:
+        raise ValueError('storage must be "persistent" or "inmemory".')
+    legacy_storage = None
+    if persistent is not None:
+        legacy_storage = "persistent" if persistent else "inmemory"
+    if storage is not None and legacy_storage is not None and storage != legacy_storage:
+        raise ValueError("storage and persistent specify conflicting storage types.")
+    storage = storage or legacy_storage or "persistent"
+    is_persistent = storage == "persistent"
+
+    if not is_persistent and (cache is not None or compression):
+        raise ValueError("cache and compression are supported only for persistent keyspaces.")
+
+    model = None
+    if semantic_model is not None:
+        try:
+            model = SemanticModel(semantic_model)
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in SemanticModel)
+            raise ValueError(f"semantic_model must be one of: {allowed}.") from exc
+        semantic = True
+
+    ks = _keyspace(keyspace, persistent=is_persistent)
+    if is_persistent:
         result = await _call(ks.create_keyspace(cache=cache, compression=compression))
     else:
         result = await _call(ks.create_keyspace())
-    if isinstance(result, dict) and result.get("status") is not False:
-        # Cache only a successful creation. Recording before the engine accepts
-        # it makes a later bind believe a nonexistent keyspace already exists.
-        _ks_type_cache[keyspace] = persistent
+    if isinstance(result, dict) and result.get("status") is False:
+        return result
+
+    # Cache only a successful creation. Recording before the engine accepts it
+    # makes a later bind believe a nonexistent keyspace already exists.
+    _ks_type_cache[keyspace] = is_persistent
+
+    if semantic:
+        engine = _get_engine()
+        if not engine.store:
+            return _failure(
+                "Semantic keyspace enablement requires MONTYCAT_STORE or a store in MONTYCAT_URI. "
+                f"Keyspace {keyspace!r} was created but semantic search was not enabled."
+            )
+        semantic_result = await _call(engine.enable_semantic_search(
+            model=model, store=engine.store, keyspace=keyspace
+        ))
+        if isinstance(semantic_result, dict) and semantic_result.get("status") is False:
+            return semantic_result
+        return {
+            "status": True,
+            "payload": {
+                "keyspace": keyspace,
+                "storage": storage,
+                "semantic": True,
+                "semantic_model": semantic_model,
+                "creation": result,
+                "semantic_result": semantic_result,
+            },
+            "error": None,
+        }
     return result
+
+
+@mcp.tool()
+@_binding_failure
+async def memocat_remove_keyspace(
+    keyspace: Optional[str] = None,
+    scope: Optional[str] = None,
+) -> Any:
+    """Permanently remove a memory namespace using the owner's authority.
+
+    This is a destructive lifecycle operation. Before removal MemoCat closes
+    the keyspace's live watch and releases MCP resource-subscription ownership
+    so the engine cannot deadlock on a lingering subscriber. The engine then
+    enforces `remove-keyspace`, creator authority, and explicit denials.
+
+    Args:
+        scope: Owner/user scope to remove (maps to keyspace mem_<scope>).
+               Use "shared" for the configured shared keyspace.
+        keyspace: Explicit keyspace override (advanced; bypasses scope).
+    """
+    name = _resolve_keyspace(scope, keyspace)
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("keyspace must be a non-empty string.")
+
+    # Never use _bind here: its normal memory behavior auto-provisions a
+    # missing keyspace, which would turn "remove absent" into create+remove.
+    persistent = await _resolve_persistent(name)
+    if persistent is None:
+        return _failure(
+            f"Keyspace {name!r} does not exist or is not visible to the configured owner."
+        )
+    ks = _keyspace(name, persistent=persistent)
+
+    # Teardown is load-bearing: an engine subscription left alive can deadlock
+    # remove_keyspace. Resource ownership is also discarded so stale sessions
+    # cannot retain or later revive the removed keyspace's watch.
+    await watch_registry.stop(name)
+    uri = _memory_uri(name)
+    _resource_sessions.pop(uri, None)
+
+    result = await _call(ks.remove_keyspace())
+    if isinstance(result, dict) and result.get("status") is False:
+        return result
+
+    _ks_type_cache.pop(name, None)
+    _keyspaces.pop((name, True), None)
+    _keyspaces.pop((name, False), None)
+    return result
+
+
+@mcp.tool()
+async def memocat_enable_semantic(
+    keyspace: str,
+    store: Optional[str] = None,
+    semantic_model: Optional[str] = None,
+    field: Optional[str] = None,
+) -> Any:
+    """Enable semantic search for one explicit keyspace.
+
+    The engine enforces `manage-semantic`, creator authority, explicit denials,
+    and allowed-model constraints. Existing records are backfilled by the
+    engine. This tool never enables semantic search database-wide.
+
+    Args:
+        keyspace: Explicit keyspace to enroll and backfill.
+        store: Target store. Defaults to the configured store.
+        semantic_model: Optional model: "minilm", "bge-small", "bge-base",
+                        or "e5-small". Omit to use the engine/policy default.
+        field: Optional JSON field to embed instead of the whole stored value.
+    """
+    if not isinstance(keyspace, str) or not keyspace.strip():
+        raise ValueError("keyspace must be a non-empty string.")
+    if field is not None and (not isinstance(field, str) or not field.strip()):
+        raise ValueError("field must be a non-empty string when provided.")
+
+    model = None
+    if semantic_model is not None:
+        try:
+            model = SemanticModel(semantic_model)
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in SemanticModel)
+            raise ValueError(f"semantic_model must be one of: {allowed}.") from exc
+
+    engine = _get_engine()
+    store = store or engine.store
+    if not store:
+        raise ValueError(
+            "store is required when MONTYCAT_URI/MONTYCAT_STORE does not configure one."
+        )
+    return await _call(engine.enable_semantic_search(
+        model=model,
+        field=field,
+        store=store,
+        keyspace=keyspace,
+    ))
+
+
+@mcp.tool()
+async def memocat_disable_semantic(
+    keyspace: str,
+    store: Optional[str] = None,
+    drop_vectors: bool = False,
+) -> Any:
+    """Disable semantic search for one explicit keyspace.
+
+    Stored vectors are retained by default so re-enabling can resume without a
+    full rebuild. Set `drop_vectors` only when intentionally clearing vectors,
+    such as before changing embedding models. The engine enforces all
+    governance authority and explicit denials.
+
+    Args:
+        keyspace: Explicit keyspace to unenroll.
+        store: Target store. Defaults to the configured store.
+        drop_vectors: Also delete stored vectors for this keyspace.
+    """
+    if not isinstance(keyspace, str) or not keyspace.strip():
+        raise ValueError("keyspace must be a non-empty string.")
+
+    engine = _get_engine()
+    store = store or engine.store
+    if not store:
+        raise ValueError(
+            "store is required when MONTYCAT_URI/MONTYCAT_STORE does not configure one."
+        )
+    return await _call(engine.disable_semantic_search(
+        drop_vectors=drop_vectors,
+        store=store,
+        keyspace=keyspace,
+    ))
+
+
+async def _snapshot_keyspace(keyspace: str):
+    """Resolve an existing in-memory keyspace without auto-provisioning."""
+    if not isinstance(keyspace, str) or not keyspace.strip():
+        raise ValueError("keyspace must be a non-empty string.")
+    persistent = await _resolve_persistent(keyspace)
+    if persistent is None:
+        raise KeyspaceBindingError(
+            f"Keyspace {keyspace!r} does not exist or is not visible to the configured owner."
+        )
+    if persistent:
+        raise ValueError("Snapshots are supported only for in-memory keyspaces.")
+    return _keyspace(keyspace, persistent=False)
+
+
+@mcp.tool()
+@_binding_failure
+async def memocat_start_snapshots(keyspace: str) -> Any:
+    """Start scheduled snapshots for one existing in-memory keyspace.
+
+    Montycat enforces `manage-snapshots`, creator authority, and explicit
+    denials. If the response says "Snapshot rate is not set", snapshot
+    scheduling is not configured on the engine; that is an environmental
+    configuration error, not an authorization denial. This tool cannot alter
+    the global snapshot rate.
+
+    Args:
+        keyspace: Explicit in-memory keyspace to snapshot.
+    """
+    ks = await _snapshot_keyspace(keyspace)
+    # The method name is misspelled in the current Python SDK; keep that detail
+    # contained at this adapter boundary.
+    return await _call(ks.do_snaphots_for_keyspace())
+
+
+@mcp.tool()
+@_binding_failure
+async def memocat_stop_snapshots(keyspace: str) -> Any:
+    """Stop scheduled snapshots for one existing in-memory keyspace.
+
+    Existing snapshot files are retained. Montycat performs the final
+    authorization check.
+
+    Args:
+        keyspace: Explicit in-memory keyspace whose snapshot schedule stops.
+    """
+    ks = await _snapshot_keyspace(keyspace)
+    return await _call(ks.stop_snapshots_for_keyspace())
+
+
+@mcp.tool()
+@_binding_failure
+async def memocat_clean_snapshots(keyspace: str) -> Any:
+    """Delete snapshot files for one existing in-memory keyspace.
+
+    This is destructive to the keyspace's snapshot history but does not delete
+    its currently loaded in-memory records. Montycat performs the final
+    authorization check.
+
+    Args:
+        keyspace: Explicit in-memory keyspace whose snapshots are cleaned.
+    """
+    ks = await _snapshot_keyspace(keyspace)
+    return await _call(ks.clean_snapshots_for_keyspace())
 
 
 @mcp.tool()
@@ -695,7 +1107,17 @@ async def memocat_await_memory_change(
     """
     name = _resolve_keyspace(scope, keyspace)
     ks = await _bind(name)
-    watch = await watch_registry.get_or_start(name, ks)
+    watch = await watch_registry.get_or_start(
+        name, ks, authorize=lambda: _authorize_watch(name)
+    )
+
+    if watch.revoked_error is not None:
+        reason = watch.revoked_error
+        await watch_registry.stop(name)
+        return _failure(
+            f"Memory watch access was revoked or could not be revalidated: {reason}. "
+            "Buffered changes were purged."
+        )
 
     # A subscription that never connected would otherwise wait out the full
     # timeout and report `timed_out: true` — indistinguishable from "nothing
@@ -720,6 +1142,13 @@ async def memocat_await_memory_change(
     baseline_seq = watch.seq if since_seq is None else since_seq
     cursor_expired = watch.cursor_expired(since_seq)
     changes = await watch.wait(baseline_seq, timeout=timeout)
+    if watch.revoked_error is not None:
+        reason = watch.revoked_error
+        await watch_registry.stop(name)
+        return _failure(
+            f"Memory watch access was revoked or could not be revalidated: {reason}. "
+            "Buffered changes were purged."
+        )
     await watch_registry.reap_idle()
 
     return {
@@ -748,6 +1177,27 @@ _MEMORY_URI = "memocat://memory/{keyspace}"
 
 def _memory_uri(keyspace: str) -> str:
     return _MEMORY_URI.format(keyspace=keyspace)
+
+
+async def _authorize_watch(keyspace: str) -> Optional[str]:
+    """Revalidate that the authenticated engine can still see a keyspace.
+
+    Structure discovery is server-filtered by effective read authority and
+    avoids fetching memory values. It is intentionally uncached for leases.
+    """
+    result = await _call(_get_engine().get_structure_available())
+    if isinstance(result, dict) and result.get("status") is False:
+        return result.get("error") or "policy revalidation failed"
+    payload = result.get("payload") if isinstance(result, dict) else None
+    structure = (payload or {}).get("structure") or {}
+    for store in structure.values():
+        if not isinstance(store, dict):
+            continue
+        if keyspace in (store.get("persistent") or {}):
+            return None
+        if keyspace in (store.get("inmemory") or {}):
+            return None
+    return f"read authority no longer includes keyspace {keyspace!r}"
 
 
 @mcp.resource(_MEMORY_URI, mime_type="application/json")
@@ -843,6 +1293,16 @@ def _notify_resource_updated(watch, _record: dict) -> None:
 watch_registry.on_change = _notify_resource_updated
 
 
+def _watch_revoked(watch, _reason: str) -> None:
+    """Discard resource ownership immediately when a lease loses access."""
+    for uri in list(watch.resource_uris):
+        _resource_sessions.pop(uri, None)
+    watch.resource_uris.clear()
+
+
+watch_registry.on_revoke = _watch_revoked
+
+
 def _keyspace_from_uri(uri: str) -> Optional[str]:
     prefix = "memocat://memory/"
     text = str(uri)
@@ -857,7 +1317,18 @@ async def _subscribe_resource(uri) -> None:
     if not name or session is None:
         return
     ks = await _bind(name)
-    watch = await watch_registry.get_or_start(name, ks)
+    watch = await watch_registry.get_or_start(
+        name, ks, authorize=lambda: _authorize_watch(name)
+    )
+    if watch.revoked_error is not None:
+        await watch_registry.stop(name)
+        raise PermissionError(watch.revoked_error)
+    problem = await watch.ensure_established()
+    if problem is not None:
+        await watch_registry.stop(name)
+        raise PermissionError(
+            f"Resource subscription rejected for keyspace {name!r}: {problem}"
+        )
     text_uri = str(uri)
     watch.resource_uris.add(text_uri)
     _add_resource_session(text_uri, session)

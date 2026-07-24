@@ -29,6 +29,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import secrets
 import shutil
 import socket
@@ -44,13 +45,16 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
+from urllib.parse import urljoin
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 21210
 DOWNLOAD_BASE = "https://downloads.montygovernance.com/bin"
 CONTAINER_NAME = "memocat-engine"
 DEFAULT_STORE = "memocat"
-INSTALLER_BASE = "https://downloads.montygovernance.com/packages"
+MACOS_INSTALLER_BASE = "https://downloads.montygovernance.com/macos"
+WINDOWS_INSTALLER_BASE = "https://downloads.montygovernance.com/windows"
+DEFAULT_ENGINE_VERSION = "1.2.3"
 _BINARY_NAMES = ("montycat_bin", "montycat_bin.exe")
 _APT_SEMANTIC_INSTALL = (
     "curl -fsSL https://repo-deb.montygovernance.com/KEY.gpg "
@@ -86,6 +90,13 @@ def _timeout() -> int:
         return int(os.environ.get("MEMOCAT_ENGINE_TIMEOUT", "120"))
     except ValueError:
         return 120
+
+
+def _installer_timeout() -> int:
+    try:
+        return max(30, int(os.environ.get("MEMOCAT_INSTALLER_TIMEOUT", "300")))
+    except ValueError:
+        return 300
 
 
 def _host_port() -> tuple[str, int]:
@@ -205,18 +216,56 @@ def resolve_binary_url(version: str = "latest") -> Optional[str]:
     return f"{DOWNLOAD_BASE}/montycat-semantic_{version}_{slug}.tar.gz"
 
 
-def installer_url(version: str = "latest") -> Optional[str]:
-    """Published desktop installer location, using the temporary predictable
-    naming convention until the downloads site exposes a signed manifest."""
+def installer_url(version: Optional[str] = None) -> Optional[str]:
+    """Pinned/fallback Semantic installer URL for the current platform."""
     override = os.environ.get("MEMOCAT_INSTALLER_URL")
     if override:
         return override
+    version = version or os.environ.get("MEMOCAT_ENGINE_VERSION", DEFAULT_ENGINE_VERSION)
     system = platform.system().lower()
     if system == "darwin":
-        return f"{INSTALLER_BASE}/montycat-semantic_{version}_macos-universal.pkg"
+        if platform.machine().lower() not in ("arm64", "aarch64"):
+            return None
+        return f"{MACOS_INSTALLER_BASE}/montycat-semantic_{version}_arm64.pkg"
     if system == "windows" and platform.machine().lower() in ("amd64", "x86_64"):
-        return f"{INSTALLER_BASE}/montycat-semantic_{version}_windows-x86_64.msi"
+        return f"{WINDOWS_INSTALLER_BASE}/montycat-semantic_{version}.msi"
     return None
+
+
+def _discover_latest_installer_url() -> Optional[str]:
+    """Choose the highest stable Semantic package in the platform index.
+
+    Download directories are the release source of truth. Version comparison
+    is numeric, so 1.10.0 correctly sorts after 1.9.9. If an index is
+    unavailable, callers fall back to DEFAULT_ENGINE_VERSION.
+    """
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "darwin" and machine in ("arm64", "aarch64"):
+        base = MACOS_INSTALLER_BASE + "/"
+        pattern = re.compile(
+            r"(montycat-semantic_(\d+)\.(\d+)\.(\d+)_arm64\.pkg)"
+        )
+    elif system == "windows" and machine in ("amd64", "x86_64"):
+        base = WINDOWS_INSTALLER_BASE + "/"
+        pattern = re.compile(
+            r"(montycat-semantic_(\d+)\.(\d+)\.(\d+)\.msi)"
+        )
+    else:
+        return None
+    try:
+        with urllib.request.urlopen(base, timeout=15) as response:  # noqa: S310
+            listing = response.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, OSError):
+        return None
+    candidates = {
+        (int(major), int(minor), int(patch), filename)
+        for filename, major, minor, patch in pattern.findall(listing)
+    }
+    if not candidates:
+        return None
+    filename = max(candidates)[3]
+    return urljoin(base, filename)
 
 
 def _sha256(path: Path) -> str:
@@ -427,16 +476,29 @@ async def download_binary(version: str = "latest") -> Optional[Path]:
     return await asyncio.to_thread(_download)
 
 
-async def download_installer(version: str = "latest") -> Optional[Path]:
+async def download_installer(version: Optional[str] = None) -> Optional[Path]:
     """Download a verified macOS/Windows installer into the user cache."""
-    url = installer_url(version)
+    pinned = version or os.environ.get("MEMOCAT_ENGINE_VERSION")
+    override = os.environ.get("MEMOCAT_INSTALLER_URL")
+    if override or pinned:
+        url = installer_url(pinned)
+    else:
+        url = await asyncio.to_thread(_discover_latest_installer_url)
     if url is None:
         return None
 
     def _download() -> Optional[Path]:
         suffix = ".pkg" if url.endswith(".pkg") else ".msi"
-        cache = _home() / "installers" / f"montycat-semantic_{version}{suffix}"
+        filename = Path(urlparse(url).path).name
+        cache = _home() / "installers" / (filename or f"montycat-semantic{suffix}")
+        digest_file = cache.with_suffix(cache.suffix + ".sha256")
         cache.parent.mkdir(parents=True, exist_ok=True)
+        if cache.is_file() and digest_file.is_file():
+            try:
+                if _sha256(cache) == digest_file.read_text().strip():
+                    return cache
+            except OSError:
+                pass
         with tempfile.TemporaryDirectory(dir=cache.parent) as tmp:
             tmpdir = Path(tmp)
             staged = tmpdir / f"installer{suffix}"
@@ -455,6 +517,7 @@ async def download_installer(version: str = "latest") -> Optional[Path]:
                     f"checksum mismatch for {url}: expected {expected}, got {actual}"
                 )
             os.replace(staged, cache)
+            digest_file.write_text(actual)
         return cache
 
     return await asyncio.to_thread(_download)
@@ -473,12 +536,24 @@ async def install_desktop_package() -> bool:
     else:
         return False
     try:
-        return await asyncio.to_thread(
+        launched = await asyncio.to_thread(
             lambda: subprocess.run(command, capture_output=True, timeout=30).returncode == 0
         )
     except (subprocess.SubprocessError, OSError) as exc:
         logger.debug("desktop installer did not start: %s", exc)
         return False
+    if not launched:
+        return False
+
+    # `open package.pkg` returns when Installer launches, not when the package
+    # has finished. Wait for the installed binary before falling through to
+    # Docker or trying to launch a path that does not exist yet.
+    end = asyncio.get_running_loop().time() + _installer_timeout()
+    while asyncio.get_running_loop().time() < end:
+        if find_installed_binary() is not None:
+            return True
+        await asyncio.sleep(1)
+    return False
 
 
 async def install_linux_apt() -> bool:

@@ -96,19 +96,21 @@ async def test_quiet_period_times_out_cleanly(server, keyspace):
 async def test_subscription_release_does_not_deadlock_keyspace_removal(server):
     """A lingering engine subscription keeps sled subscribers alive and
     deadlocks later keyspace removal. This is the canary for that."""
-    from memocat_mcp.watch import registry
-
     name = "memocat_t_deadlock_canary"
     raw = server._keyspace(name, persistent=True)
     await raw.remove_keyspace()
     await server.memocat_create_keyspace(keyspace=name, persistent=True)
 
     await server.memocat_await_memory_change(keyspace=name, timeout_sec=1)
-    await registry.stop_all()
 
     start = time.perf_counter()
-    removed = await asyncio.wait_for(raw.remove_keyspace(), timeout=15)
+    removed = await asyncio.wait_for(
+        server.memocat_remove_keyspace(keyspace=name), timeout=15
+    )
     elapsed = time.perf_counter() - start
 
     assert removed.get("status") is True
     assert elapsed < 10, "remove_keyspace hung — subscribers were not released"
+    assert name not in server._ks_type_cache
+    assert (name, True) not in server._keyspaces
+    assert (name, False) not in server._keyspaces

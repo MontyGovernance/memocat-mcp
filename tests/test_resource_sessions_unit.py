@@ -39,6 +39,19 @@ def test_resource_session_ownership_is_per_client():
     assert URI not in server._resource_sessions
 
 
+def test_revocation_discards_all_resource_session_ownership():
+    first, second = Session(), Session()
+    watch = MemoryWatch("team")
+    watch.resource_uris.add(URI)
+    server._add_resource_session(URI, first)
+    server._add_resource_session(URI, second)
+
+    server._watch_revoked(watch, "permission revoked")
+
+    assert URI not in server._resource_sessions
+    assert watch.resource_uris == set()
+
+
 @pytest.mark.asyncio
 async def test_notifications_fan_out_to_every_subscribed_session():
     first, second = Session(), Session()

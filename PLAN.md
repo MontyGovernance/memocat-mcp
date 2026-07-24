@@ -235,6 +235,11 @@ Implementation notes worth keeping:
   promptly afterwards as a deadlock canary.
 - Subscriptions open on demand, close when idle — zero cost for users who never
   watch.
+- Active subscriptions use short read-authorization leases because the current
+  engine authorizes only when a subscription opens. Revocation closes the
+  reader, purges buffered changes, wakes waiters with an explicit error, and
+  releases MCP resource ownership. Live E2E covers grant → buffer → revoke →
+  purge with a temporary delegated owner.
 - **No engine changes were needed**: the subscription server is on by default
   (`DEFAULT_ALLOWED = vec![0, 1]`, port 21211) and change frames already carry
   key, value, and event.
@@ -280,8 +285,10 @@ Implementation notes worth keeping:
    asset and still needs recording** (§8 GIF).
 7. **Resources + Prompts + HTTP mode** (§8) — Resources ✅ done with §7.3
    (`montycat://memory/{keyspace}`, subscribable). Prompts + HTTP mode open.
-8. **Engine dependency** — native macOS build (or engine-in-wheel packaging) to
-   un-gate Mac cold installs.
+8. **Engine dependency** — Apple Silicon and Windows cold installs discover the
+   latest stable Semantic package, verify its checksum, and wait for Installer
+   completion. Intel macOS and fully unattended installation still require a
+   native archive or engine-in-wheel packaging.
 
 ---
 
@@ -292,6 +299,8 @@ Implementation notes worth keeping:
   `mem_<scope>` (+ `shared`); `MONTYCAT_SCOPE` env for single-tenant setups.
 - Storage default: **persistent** (long-term memory); in-memory + TTL = working
   memory (§7.2). Existing keyspaces auto-detected, env only decides new ones.
-- Admin surface: `create_keyspace`/`forget` require superowner creds; isolation
-  is logical per-keyspace with one shared connection, credential-enforced when
-  running one server instance per owner (documented in README).
+- Authority model: `create_keyspace` requires `provision-keyspace` authority
+  constrained by store, storage type, and semantic model; `forget` requires
+  write authority for the target keyspace. Scopes are logical routing with one
+  shared connection; isolation is credential-enforced when running one server
+  instance per delegated owner (documented in README).
