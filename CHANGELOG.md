@@ -2,14 +2,14 @@
 
 All notable changes to MemoCat MCP are documented here.
 
-## 0.4.1 — Unreleased
+## 0.4.1 — 2026-08-27
 
 ### Fixed
 
 - Pass `semantic=False` through keyspace creation instead of accidentally
   inheriting the Python client's `semantic=True` default.
 
-## 0.4.0 — 2026-08-27
+## 0.4.0
 
 First public release.
 
