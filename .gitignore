@@ -19,3 +19,6 @@ uv.lock
 
 # tooling
 .pytest_cache/
+AUTOSTART_PLAN.md
+DATA_MESH_GOVERNANCE_PLAN.md
+PUBLISHING.md

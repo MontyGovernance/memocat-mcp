@@ -67,19 +67,19 @@ the final source of truth.
 |---|---|---|
 | Semantic search, recall, list memories | `read` | Enforced by engine |
 | Remember, bulk remember, update, forget record | `write` | Enforced by engine |
-| Watch/subscription | `read` or creator data authority | Enforced when connection opens |
+| Watch/subscription | `read` or creator data authority | Engine checks on open; MCP leases revalidate and purge on revocation |
 | List keyspaces | Effective readable structure | Already filtered by engine |
-| Create keyspace | `provision-keyspace` | Delegated owners work, but MCP docs say superowner-only |
-| Remove keyspace | `remove-keyspace` or creator authority | Not exposed by MCP |
-| Enable/disable keyspace semantic management | `manage-semantic` | Not exposed by MCP |
-| Snapshot management | `manage-snapshots` | Not exposed by MCP |
-| Effective policy view | Authenticated owner/superowner | Not exposed by MCP |
-| Policy explanation/history | Scoped owner/superowner authority | Not exposed by MCP |
+| Create keyspace | `provision-keyspace` | Delegated owners supported and documented |
+| Remove keyspace | `remove-keyspace` or creator authority | Exposed; watch/resource cleanup precedes removal |
+| Enable/disable keyspace semantic management | `manage-semantic` | Exposed keyspace-by-keyspace |
+| Snapshot management | `manage-snapshots` | Exposed for existing in-memory keyspaces |
+| Effective policy view | Authenticated owner/superowner | Exposed without caller-selected owner impersonation |
+| Policy explanation/history | Scoped owner/superowner authority | Exposed through owner-safe tools |
 | Policy grant/revoke/deny/apply | Superowner | Not exposed; safer for default profile |
 
-## Immediate compatibility and documentation corrections
+## Compatibility and documentation corrections — complete
 
-The following current statements are outdated:
+The following outdated statements have been corrected:
 
 - `MONTYCAT_AUTO_PROVISION` no longer necessarily needs superowner
   credentials.
@@ -92,11 +92,10 @@ A delegated owner can provision a keyspace when the superowner grants
 `provision-keyspace` for the target store, requested keyspace type, and
 semantic-model constraints.
 
-The Python SDK dependency must also be pinned to a released version that
-contains the typed governance API. The local Python package currently reports
-version `1.0.7`; publishing governance changes under the same already-released
-version would create ambiguity. The SDK should receive a new version before
-MemoCat declares governance support against a published dependency.
+The Python SDK dependency is pinned to the released `montycat>=1.2.2,<2`,
+which contains the typed governance API, scoped semantic lifecycle, external
+vectors, status/re-embedding, and subscription cleanup behavior used by
+MemoCat.
 
 ## Security gaps and design risks
 
@@ -132,14 +131,20 @@ Subscription authorization is checked when the subscription connection opens.
 If a superowner later revokes read authority, an already-open subscription may
 continue receiving changes until it disconnects.
 
-This is the highest-priority technical security gap.
+MemoCat now closes this gap with short authorization leases. Active watches are
+periodically revalidated against the engine's filtered structure; access loss
+closes the subscription, purges buffered changes, releases resource ownership,
+and wakes waiters with an explicit error. Engine-side invalidation remains the
+preferred eventual defense for every client, but it is no longer an open MCP
+release blocker.
 
-Preferred remedies:
+Implemented and future remedies:
 
 1. Engine-side policy changes terminate affected active subscriptions.
-2. If engine-side invalidation is not yet available, MemoCat periodically
-   reauthorizes active watches and closes unauthorized ones.
-3. Introduce short-lived subscription leases that reconnect and reauthorize.
+2. MemoCat periodically reauthorizes active watches and closes unauthorized
+   ones. **Implemented.**
+3. Short authorization leases bound the time between policy revocation and
+   watch shutdown. **Implemented.**
 
 Engine-side invalidation is preferred because it protects every client, not
 only MCP.
@@ -464,13 +469,12 @@ run against a live semantic server.
 
 ### Phase 1: compatibility and deployment
 
-1. Update README authorization language.
-2. Replace normal examples using superowner credentials with delegated-owner
-   examples.
-3. Correct `memocat_forget` documentation.
-4. Pin MemoCat to a newly released Python SDK version containing governance
-   support.
-5. Add delegated-owner live fixtures.
+1. ~~Update README authorization language.~~ ✅
+2. ~~Document delegated-owner deployment as the production isolation model.~~ ✅
+3. ~~Correct `memocat_forget` documentation.~~ ✅
+4. ~~Pin MemoCat to a released Python SDK version containing governance
+   support (`montycat>=1.2.2,<2`).~~ ✅
+5. ~~Add delegated-owner live fixtures and acceptance coverage.~~ ✅
 
 ### Phase 2: owner policy UX
 

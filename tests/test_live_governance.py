@@ -13,6 +13,54 @@ from .conftest import requires_engine
 pytestmark = [pytest.mark.asyncio, requires_engine]
 
 
+async def test_superowner_creates_missing_store_with_first_keyspace(server):
+    """create-keyspace is also the intentional store bootstrap operation."""
+    admin = server._get_engine()
+    store = f"memocat_store_{uuid.uuid4().hex[:10]}"
+    keyspace = f"memocat_first_{uuid.uuid4().hex[:10]}"
+    scoped = Engine(
+        host=admin.host,
+        port=admin.port,
+        username=admin.username,
+        password=admin.password,
+        store=store,
+        tls=admin.tls,
+    )
+
+    try:
+        server._engine = scoped
+        server._keyspaces.clear()
+        server._ks_type_cache.clear()
+
+        created = await server.memocat_create_keyspace(
+            keyspace=keyspace,
+            storage="persistent",
+            semantic=False,
+        )
+        assert created.get("status") is True, created
+
+        structure = await scoped.get_structure_available()
+        assert structure.get("status") is True, structure
+        visible = structure.get("payload", {}).get("structure", {})
+        assert keyspace in visible[store]["persistent"], visible
+
+        written = await server.memocat_remember(
+            keyspace=keyspace,
+            value={"text": "store and keyspace were provisioned together"},
+        )
+        assert written.get("status") is True, written
+        recalled = await server.memocat_recall(
+            keyspace=keyspace,
+            key=str(written.get("payload")),
+        )
+        assert recalled.get("status") is True, recalled
+    finally:
+        await scoped.remove_store()
+        server._engine = admin
+        server._keyspaces.clear()
+        server._ks_type_cache.clear()
+
+
 async def test_keyspace_scoped_semantic_lifecycle(server):
     name = f"memocat_t_semantic_{uuid.uuid4().hex[:10]}"
 

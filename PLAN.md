@@ -1,6 +1,6 @@
 # MemoCat — MCP Server for Montycat — Build & Discoverability Plan
 
-**Package:** `memocat-mcp` · **Language:** Python (FastMCP) · **Status:** v0.3 built & validated live
+**Package:** `memocat-mcp` · **Language:** Python (FastMCP) · **Status:** v0.4 in progress, unreleased
 
 > **Done so far:** 9 tools (semantic_search, remember, remember_bulk, recall,
 > list_memories, update, forget, list_keyspaces, create_keyspace), multi-tenant
@@ -75,11 +75,11 @@ Map to verified client methods. Keep names agent-legible; lead with the memory s
 
 | Tool | Wraps | Purpose |
 |------|-------|---------|
-| `memocat_semantic_search` | `semantic_search_get_values(...)` / `semantic_search_get_values_where(...)` | Retrieve by meaning (kNN). Returns scored `{key, score, value}`. The core RAG/recall tool. Hybrid: `filters` / `since` / `until` restrict which memories are ranked (hard AND; ranking stays pure similarity). |
-| `memocat_remember` | `insert_value(value)` / `insert_custom_key_value` | Store a fact/record; it is embedded + indexed automatically. |
+| `memocat_semantic_search` | `semantic_search_get_values(...)` / `semantic_search_get_values_where(...)` | Retrieve by meaning (kNN), text or a supplied query vector. Hybrid: `filters` / `since` / `until` restrict which memories are ranked. |
+| `memocat_remember` | `insert_value(value)` / `insert_custom_key_value` | Store a fact/record, automatically embedded or with a supplied vector. |
 | `memocat_recall` | `get_value(key/custom_key)` / `lookup_values_where(...)` | Fetch by key or by field filter (exact recall). |
 | `memocat_list_keyspaces` | `get_structure_available()` | Discover available memory stores/keyspaces. |
-| `memocat_create_keyspace` | `create_keyspace()` (persistent/in-memory) | Provision a new memory namespace. |
+| `memocat_create_keyspace` | `create_keyspace()` (persistent/in-memory) | Provision a namespace; superowners also create a missing configured store in the same engine request. |
 | `memocat_forget` | `delete_key(key/custom_key)` | Remove a stored record. |
 
 Each tool: clear description (this is what the LLM reads to decide when to call
@@ -265,8 +265,11 @@ Implementation notes worth keeping:
    ~~time-range recall~~ ✅ (folded into hybrid search, §7.2), plus **hybrid
    metadata filtering** (`filters=` on `memocat_semantic_search`, not in the
    original plan — arrived with engine Phase 3). Remaining: `ttl` framing.
-   Requires `montycat>=1.0.7` (the `_where` client methods) and a Montycat
-   Semantic engine >= 1.2.3; older engines silently ignore the filter.
+   Requires `montycat>=1.2.2` (hybrid methods plus vector/profile lifecycle)
+   and a Montycat
+   Semantic engine >= 1.3.0; 1.3.0 adds externally supplied vectors,
+   query-vector search, and semantic re-embedding/status. Older engines
+   silently ignore hybrid filters before 1.2.3 and lack vector-profile APIs.
 3. **Publish** — PyPI (`uvx memocat-mcp`) + Docker image. The stdio "deploy."
 4. **Zero-config auto-start** (§7.1) — tiered engine bootstrap. Ship as 0.4
    (0.3 went to the real-time watch). Designed in

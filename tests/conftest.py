@@ -60,7 +60,11 @@ async def keyspace(server):
     """
     name = f"memocat_t_{uuid.uuid4().hex[:10]}"
     raw = server._keyspace(name, persistent=True)
-    await server.memocat_create_keyspace(keyspace=name, persistent=True)
+    # Tests using this shared fixture exercise semantic recall. Be explicit:
+    # memocat_create_keyspace defaults to semantic=False by API contract.
+    await server.memocat_create_keyspace(
+        keyspace=name, persistent=True, semantic=True
+    )
     try:
         yield name
     finally:

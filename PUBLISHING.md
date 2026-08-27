@@ -3,12 +3,11 @@
 ## First-release prerequisites
 
 1. Confirm the `memocat-mcp` project name is available on PyPI.
-2. Publish a Montycat Python SDK release satisfying `montycat>=1.0.8,<2`.
-   It must contain the typed governance API, scoped semantic methods, hybrid
-   `_where` search methods, and subscription cleanup behavior used here.
-   PyPI's 1.0.7 is insufficient: it does not export the policy enums or provide
-   the policy methods and keyspace-scoped semantic signatures.
-3. Confirm `https://github.com/MontyGovernance/meow_memory_mcp` is public and
+2. Publish a Montycat Python SDK release satisfying `montycat>=1.2.2,<2`.
+   It must contain typed governance, scoped/hybrid semantic methods,
+   query/write vectors, external-vector enrollment, semantic status,
+   re-embedding, and subscription cleanup behavior used here.
+3. Confirm `https://github.com/MontyGovernance/memocat-mcp` is public and
    that its README, issues, and changelog URLs resolve.
 4. Configure PyPI Trusted Publishing for the release workflow or create a
    short-lived scoped API token. Do not store a token in the repository.
@@ -17,6 +16,7 @@
 
 ```bash
 git status --short
+rm -rf dist
 uv run --with build --with twine python -m build
 uv run --with twine twine check dist/*
 ```
@@ -24,7 +24,7 @@ uv run --with twine twine check dist/*
 Run the complete test suite against Montycat Semantic:
 
 ```bash
-.venv/bin/pytest -q
+uv run --extra test pytest -q
 ```
 
 Test the wheel in a clean environment:
@@ -32,16 +32,16 @@ Test the wheel in a clean environment:
 ```bash
 release_dir="$(mktemp -d)"
 python3 -m venv "$release_dir/venv"
-"$release_dir/venv/bin/pip" install dist/memocat_mcp-0.4.0-py3-none-any.whl
+"$release_dir/venv/bin/pip" install dist/memocat_mcp-0.4.1-py3-none-any.whl
 "$release_dir/venv/bin/python" -c \
-  'import memocat_mcp; assert memocat_mcp.__version__ == "0.4.0"'
+  'import memocat_mcp; assert memocat_mcp.__version__ == "0.4.1"'
 ```
 
 Inspect package contents before uploading:
 
 ```bash
-unzip -l dist/memocat_mcp-0.4.0-py3-none-any.whl
-tar -tzf dist/memocat_mcp-0.4.0.tar.gz
+unzip -l dist/memocat_mcp-0.4.1-py3-none-any.whl
+tar -tzf dist/memocat_mcp-0.4.1.tar.gz
 ```
 
 ## TestPyPI
@@ -49,20 +49,21 @@ tar -tzf dist/memocat_mcp-0.4.0.tar.gz
 ```bash
 uv run --with twine twine upload --repository testpypi dist/*
 uvx --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ memocat-mcp==0.4.0
+  --extra-index-url https://pypi.org/simple/ memocat-mcp==0.4.1
 ```
 
 Verify the rendered description, project links, classifiers, and install
 command on TestPyPI. Then perform an MCP handshake against a live Semantic
-engine.
+engine >=1.3.0, including query/write vectors, external-vector enrollment,
+semantic status, and re-embedding.
 
 ## PyPI
 
 Tag the exact tested commit:
 
 ```bash
-git tag -s v0.4.0 -m "MemoCat MCP 0.4.0"
-git push origin v0.4.0
+git tag -s v0.4.1 -m "MemoCat MCP 0.4.1"
+git push origin v0.4.1
 ```
 
 Upload through Trusted Publishing. If a manual token is required:
@@ -74,7 +75,7 @@ uv run --with twine twine upload dist/*
 After publishing, verify:
 
 ```bash
-uvx memocat-mcp==0.4.0
+uvx memocat-mcp==0.4.1
 ```
 
 Then add the PyPI URL to the MCP registry submission, Docker image labels,

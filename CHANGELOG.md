@@ -2,7 +2,14 @@
 
 All notable changes to MemoCat MCP are documented here.
 
-## 0.4.0 — 2026-07-23
+## 0.4.1 — Unreleased
+
+### Fixed
+
+- Pass `semantic=False` through keyspace creation instead of accidentally
+  inheriting the Python client's `semantic=True` default.
+
+## 0.4.0 — 2026-08-27
 
 First public release.
 
@@ -21,6 +28,8 @@ First public release.
   data after access loss.
 - Native engine discovery and verified platform-package bootstrap, with Docker
   fallback.
+- Precomputed-vector memory writes and queries, external-vector profile
+  enrollment, semantic status inspection, and semantic re-embedding.
 
 ### Security
 
@@ -28,4 +37,3 @@ First public release.
   acceptance matrix.
 - Safe keyspace removal that releases subscriptions before engine teardown.
 - Mandatory SHA-256 verification for downloaded engine packages.
-

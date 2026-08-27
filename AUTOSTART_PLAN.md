@@ -1,11 +1,12 @@
 # Zero-config auto-start — plan
 
-> **Current implementation:** detect an existing `montycat_bin` first;
-> otherwise Apple Silicon and Windows discover the numerically latest Semantic
-> package from their platform download index, verify its adjacent checksum,
-> invoke Installer, and wait for the installed binary. Linux invokes
-> the official APT package when configured, and unsuccessful paths fall through
-> to Docker. The archive-only proposal below remains the future unattended path.
+> **Current implementation:** reuse an existing engine or installed
+> `montycat_bin` first. Otherwise Apple Silicon and Windows ask the shared
+> release catalog (`infra.montygovernance.com/v1/releases/{platform}`) for the
+> current Semantic artifact, verify its adjacent checksum, invoke the platform
+> installer, and wait for the installed binary. Linux invokes the official APT
+> package when configured, and unsuccessful paths fall through to Docker. The
+> archive-only proposal below remains the future unattended path.
 
 **Status:** built and tested · PLAN.md §7.1 / milestone 4
 
@@ -19,13 +20,14 @@ installs, and a registry listing only gets one first impression.
 Goal: `uvx memocat-mcp` works cold, on a machine with no engine, no
 configuration, and no prior knowledge of Montycat.
 
-### Fix first, independent of this work
+### Apple Silicon Docker tag — fixed
 
-`README.md` tells everyone to run `montygovernance/montycat:semantic`, which is
+`README.md` previously told everyone to run `montygovernance/montycat:semantic`, which is
 the **amd64** image. On Apple Silicon that runs under QEMU, which is the exact
 configuration where semantic ONNX warm-up segfaults — the reason the `arm64-*`
 tags exist (`DOCKERHUB.md:98`). The documented install path fails on the most
-common Claude Desktop platform. One-line fix; do it now, not with 0.4.
+common Claude Desktop platform. The README and bootstrap now select
+`arm64-semantic` on Apple Silicon.
 
 ## Tiers
 
@@ -34,10 +36,12 @@ falls through to the next.
 
 | # | Tier | Status |
 |---|------|--------|
-| 1 | `MONTYCAT_URI` set, or an engine already listening → just connect | works today |
-| 2 | **Native binary** — download, cache under `~/.montycat/bin`, run | needs the artifact below |
-| 3 | **Docker** — pull + run the arch-correct image | buildable now |
-| 4 | Neither available → one clear error naming both install paths; never hang | — |
+| 1 | `MONTYCAT_URI` set, or an engine already listening → just connect | implemented |
+| 2a | Detect an installed native engine | implemented |
+| 2b | User-space verified binary archive | implemented client path; artifact publication remains |
+| 2c | Release-catalog package: macOS/Windows installer or Linux APT | implemented |
+| 3 | **Docker** — pull + run the arch-correct image | implemented |
+| 4 | Neither available → one clear error naming both install paths; never hang | implemented |
 
 Tier 1 must stay first and cheap: an operator who already runs an engine should
 never trigger a download.
@@ -99,11 +103,11 @@ subscription server (`watch.py`).
 
 ## Implementation
 
-New module `memocat_mcp/bootstrap.py`, called once from `_get_engine()` before
-the first connection:
+Module `memocat_mcp/bootstrap.py` is called by `main()` before the MCP server
+begins serving requests:
 
 ```python
-async def ensure_engine() -> EngineTarget   # host, port, credentials
+async def ensure_engine() -> str   # "existing" | "native" | "docker"
 ```
 
 Pieces:
@@ -112,13 +116,15 @@ Pieces:
   readiness check for tiers 2 and 3.
 - **`resolve_binary_url()`** — platform → URL, or None. Honours
   `MEMOCAT_BINARY_URL`.
-- **`fetch_binary()`** — download to a temp file, verify sha256, unpack into
+- **`download_binary()`** — download to a temp file, verify sha256, unpack into
   `~/.montycat/bin/<version>/`, `chmod +x`. Never overwrite an existing verified
   copy; a cached binary means the second start is instant.
 - **`start_native()` / `start_docker()`** — spawn, then wait for readiness.
-- **`credentials()`** — generate a superowner/password on first run, persist to
-  `~/.montycat/memocat.json` (mode 0600), reuse thereafter. Auto-provisioning of
-  per-scope keyspaces needs superowner, so this cannot be skipped.
+- **`credentials()`** — generate a superowner/password for an engine MemoCat
+  starts itself, persist them to `~/.montycat/memocat.json` (mode 0600), and
+  reuse them. Operators connecting to an existing engine should prefer a
+  delegated owner; policy-authorized delegated owners can auto-provision
+  keyspaces without superowner credentials.
 
 ### Decisions to make explicit in code
 
@@ -144,6 +150,10 @@ Pieces:
 | `MEMOCAT_AUTOSTART` | `auto` | `auto` \| `off` \| `native` \| `docker` — pin a tier or disable |
 | `MEMOCAT_BINARY_URL` | — | Override the tier-2 artifact URL (dev, air-gapped) |
 | `MEMOCAT_ENGINE_TIMEOUT` | `120` | Seconds to wait for readiness on a cold start |
+| `MEMOCAT_RELEASES_URL` | `https://infra.montygovernance.com` | Release-catalog base URL |
+| `MEMOCAT_INSTALLER_URL` | — | Explicit macOS/Windows installer override |
+| `MEMOCAT_ENGINE_VERSION` | — | Deliberately pin a direct installer version instead of catalog discovery |
+| `MEMOCAT_INSTALLER_TIMEOUT` | `300` | Seconds to wait for platform installer completion |
 | `MONTYCAT_URI` | — | Set → tier 1 only; auto-start never runs |
 
 ## Verification
@@ -153,8 +163,7 @@ Pieces:
   timeout bounds. Mock the process launches.
 - **Live:** with an engine already up, tier 1 wins and nothing is downloaded or
   started — assert no container is created. With Docker available and no engine,
-  tier 3 brings one up and the existing 54-test suite passes against it
-  unchanged.
+  tier 3 brings one up and the complete live MCP suite must pass against it.
 - **Cold-start matrix**, manually at least once per platform: Apple Silicon,
   Intel Mac, Linux x86_64, Windows. The arm64 tag selection is the specific
   thing to confirm on Apple Silicon.
@@ -162,14 +171,14 @@ Pieces:
 
 ## Phasing
 
-1. README tag fix (now, standalone)
-2. Tiers 1 + 3 + 4 with the arch-correct tag — this alone turns four steps into
-   one for anyone with Docker, and unblocks the discoverability blitz
-3. Tier 2 once the binary archive is published; `MEMOCAT_BINARY_URL` lets it be
-   written and tested before then
-4. Drop the Docker requirement from the README's Requirements section, and lead
-   with `uvx memocat-mcp`
+1. ~~README tag fix.~~ ✅
+2. ~~Tiers 1 + 3 + 4 with the architecture-correct Docker tag.~~ ✅
+3. ~~Installed-engine discovery and release-catalog platform installers/APT.~~ ✅
+4. Publish the optional signed user-space binary archives for fully unattended
+   tier 2; `MEMOCAT_BINARY_URL` already exercises this path.
+5. Complete the per-platform cold-start matrix before widening distribution.
 
-Sequencing note: the discoverability blitz (PLAN.md milestone 5) should follow
-step 2, not precede it. Driving a registry listing at a four-step manual install
-spends the one first impression you get.
+The prerequisite for the discoverability blitz is satisfied: architecture-safe
+Docker fallback and bounded zero-config startup are implemented. The manual
+cold-start matrix remains a release-quality check, not a reason to return to a
+four-step install story.

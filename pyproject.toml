@@ -1,6 +1,6 @@
 [project]
 name = "memocat-mcp"
-version = "0.4.0"
+version = "0.4.1"
 description = "MCP server for self-hosted AI agent memory, semantic search, vector RAG, and Montycat."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,7 +29,9 @@ keywords = [
     "self-hosted",
     "fastmcp",
     "claude",
+    "claude-desktop",
     "cursor",
+    "chatgpt",
     "data-governance",
 ]
 classifiers = [
@@ -55,10 +57,9 @@ dependencies = [
     # handlers). A major bump must be re-verified rather than silently dropping
     # push support — see memocat_mcp/watch.py and server.py `_run_stdio`.
     "mcp[cli]>=1.2.0,<2",
-    # 1.0.8 is the first publishable SDK release expected to include both the
-    # hybrid `_where` methods and typed governance/keyspace-scoped semantic API.
-    # PyPI's 1.0.7 has hybrid search but not the governance surface.
-    "montycat>=1.0.8,<2",
+    # 1.2.2 adds query/write vectors, external-vector enrollment, semantic
+    # status, and re-embedding; MemoCat exposes all of those surfaces.
+    "montycat>=1.2.2,<2",
 ]
 
 [project.scripts]
@@ -67,9 +68,9 @@ memocat-mcp = "memocat_mcp.server:main"
 [project.urls]
 Homepage = "https://montygovernance.com"
 Documentation = "https://montygovernance.com/docs"
-Repository = "https://github.com/MontyGovernance/meow_memory_mcp"
-Issues = "https://github.com/MontyGovernance/meow_memory_mcp/issues"
-Changelog = "https://github.com/MontyGovernance/meow_memory_mcp/blob/main/CHANGELOG.md"
+Repository = "https://github.com/MontyGovernance/memocat-mcp"
+Issues = "https://github.com/MontyGovernance/memocat-mcp/issues"
+Changelog = "https://github.com/MontyGovernance/memocat-mcp/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
@@ -85,7 +86,6 @@ include = [
     "/README.md",
     "/LICENSE",
     "/CHANGELOG.md",
-    "/PUBLISHING.md",
     "/pyproject.toml",
     "/Dockerfile",
     "/compose.yaml",

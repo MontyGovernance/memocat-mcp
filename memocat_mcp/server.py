@@ -421,7 +421,7 @@ def _binding_failure(tool):
 @mcp.tool()
 @_binding_failure
 async def memocat_semantic_search(
-    query: str,
+    query: str = "",
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     limit: int = 5,
@@ -429,6 +429,7 @@ async def memocat_semantic_search(
     filters: Optional[dict] = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
+    vector: Optional[list[float]] = None,
 ) -> Any:
     """Search stored memory by MEANING (vector / semantic search), not keywords.
 
@@ -444,7 +445,11 @@ async def memocat_semantic_search(
     with hybrid support (>= 1.2.3); older engines ignore the filter.
 
     Args:
-        query: Natural-language description of what to recall.
+        query: Natural-language description of what to recall. May be empty
+               when `vector` supplies a precomputed query embedding.
+        vector: Optional precomputed query embedding. It must match the
+                keyspace's enrolled embedding space and dimensions; when set,
+                the engine does not embed `query`.
         scope: Owner/user id to scope recall to (searches only that owner's memory,
                keyspace mem_<scope>). Use "shared" for the common keyspace.
         keyspace: Explicit keyspace override (advanced; bypasses scope).
@@ -458,6 +463,8 @@ async def memocat_semantic_search(
     """
     _validate_limit(limit)
     _validate_score(min_score)
+    if not query.strip() and vector is None:
+        raise ValueError("Provide a non-empty query or a precomputed vector.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     if since or until:
         filters = dict(filters or {})
@@ -469,9 +476,11 @@ async def memocat_semantic_search(
             filters["_created_at"] = Timestamp(before=until)
     if filters:
         return await _call(ks.semantic_search_get_values_where(
-            query, filters, limit=limit, min_score=min_score
+            query, filters, vector=vector, limit=limit, min_score=min_score
         ))
-    return await _call(ks.semantic_search_get_values(query, limit=limit, min_score=min_score))
+    return await _call(ks.semantic_search_get_values(
+        query, vector=vector, limit=limit, min_score=min_score
+    ))
 
 
 @mcp.tool()
@@ -483,6 +492,7 @@ async def memocat_remember(
     custom_key: Optional[str] = None,
     timestamp: Optional[bool] = None,
     wait_for_index: Optional[bool] = None,
+    vector: Optional[list[float]] = None,
 ) -> Any:
     """Store a fact or record in memory; it is embedded and indexed automatically.
 
@@ -509,14 +519,20 @@ async def memocat_remember(
                         have caught up before returning. Defaults to the engine
                         setting; use True when an immediate filtered/semantic
                         recall must see this write.
+        vector: Optional precomputed embedding for this record. It must match
+                the keyspace's enrolled embedding profile.
     """
     if not isinstance(value, dict) or not value:
         raise ValueError("value must be a non-empty JSON object.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     value = _stamp(value, timestamp)
     if custom_key is not None:
-        return await _call(ks.insert_custom_key_value(custom_key, value, wait_for_index=wait_for_index))
-    return await _call(ks.insert_value(value, wait_for_index=wait_for_index))
+        return await _call(ks.insert_custom_key_value(
+            custom_key, value, vector=vector, wait_for_index=wait_for_index
+        ))
+    return await _call(ks.insert_value(
+        value, vector=vector, wait_for_index=wait_for_index
+    ))
 
 
 @mcp.tool()
@@ -676,7 +692,10 @@ async def memocat_create_keyspace(
 
     A delegated owner can create a keyspace when its governance policy grants
     `provision-keyspace` for the requested store, storage type, and semantic
-    model. The engine remains the final authorization boundary.
+    model, but its store must already exist. With superowner credentials, the
+    engine creates a missing configured store and this first keyspace together
+    in the same provisioning request. The engine remains the final
+    authorization boundary.
 
     Args:
         keyspace: Name of the keyspace to create.
@@ -719,9 +738,15 @@ async def memocat_create_keyspace(
 
     ks = _keyspace(keyspace, persistent=is_persistent)
     if is_persistent:
-        result = await _call(ks.create_keyspace(cache=cache, compression=compression))
+        result = await _call(ks.create_keyspace(
+            cache=cache,
+            compression=compression,
+            semantic=semantic,
+        ))
     else:
-        result = await _call(ks.create_keyspace())
+        result = await _call(ks.create_keyspace(
+            semantic=semantic,
+        ))
     if isinstance(result, dict) and result.get("status") is False:
         return result
 
@@ -848,6 +873,83 @@ async def memocat_enable_semantic(
         field=field,
         store=store,
         keyspace=keyspace,
+    ))
+
+
+def _semantic_store(engine: Engine, store: Optional[str]) -> str:
+    """Resolve the explicit store required by keyspace-scoped semantic calls."""
+    resolved = store or engine.store
+    if not resolved:
+        raise ValueError(
+            "store is required when MONTYCAT_URI/MONTYCAT_STORE does not configure one."
+        )
+    return resolved
+
+
+@mcp.tool()
+async def memocat_semantic_status(
+    store: Optional[str] = None,
+    keyspace: Optional[str] = None,
+) -> Any:
+    """Read the engine's actual semantic configuration and backfill state.
+
+    Pass both `store` and `keyspace` for one keyspace. Omitting both asks for
+    the database-wide view, which may require superowner authority.
+    """
+    if keyspace is not None and (not isinstance(keyspace, str) or not keyspace.strip()):
+        raise ValueError("keyspace must be a non-empty string when provided.")
+    engine = _get_engine()
+    if keyspace is not None:
+        store = _semantic_store(engine, store)
+    return await _call(engine.get_semantic_status(store=store, keyspace=keyspace))
+
+
+@mcp.tool()
+async def memocat_enable_external_vectors(
+    keyspace: str,
+    dimensions: int,
+    embedding_space: str,
+    store: Optional[str] = None,
+) -> Any:
+    """Enroll a keyspace for caller-supplied embeddings instead of text embedding."""
+    if not isinstance(keyspace, str) or not keyspace.strip():
+        raise ValueError("keyspace must be a non-empty string.")
+    if not isinstance(dimensions, int) or isinstance(dimensions, bool) or not 1 <= dimensions <= 4096:
+        raise ValueError("dimensions must be an integer between 1 and 4096.")
+    if not isinstance(embedding_space, str) or not 1 <= len(embedding_space) <= 128:
+        raise ValueError("embedding_space must contain 1 to 128 characters.")
+    engine = _get_engine()
+    store = _semantic_store(engine, store)
+    return await _call(engine.enable_precomputed_vector_search(
+        store, keyspace, dimensions, embedding_space
+    ))
+
+
+@mcp.tool()
+async def memocat_reembed_semantic(
+    keyspace: str,
+    semantic_model: str,
+    store: Optional[str] = None,
+    field: Optional[str] = None,
+) -> Any:
+    """Replace an enrolled keyspace's text embedding model and backfill it.
+
+    This clears its current vectors, then has the engine rebuild them. Use
+    `memocat_semantic_status` to observe the resulting configuration.
+    """
+    if not isinstance(keyspace, str) or not keyspace.strip():
+        raise ValueError("keyspace must be a non-empty string.")
+    if field is not None and (not isinstance(field, str) or not field.strip()):
+        raise ValueError("field must be a non-empty string when provided.")
+    try:
+        model = SemanticModel(semantic_model)
+    except ValueError as exc:
+        allowed = ", ".join(item.value for item in SemanticModel)
+        raise ValueError(f"semantic_model must be one of: {allowed}.") from exc
+    engine = _get_engine()
+    store = _semantic_store(engine, store)
+    return await _call(engine.reembed_semantic_search(
+        model, store, keyspace, field=field
     ))
 
 
@@ -983,6 +1085,7 @@ async def memocat_update(
     key: Optional[str] = None,
     custom_key: Optional[str] = None,
     wait_for_index: Optional[bool] = None,
+    vector: Optional[list[float]] = None,
 ) -> Any:
     """Revise an existing memory in place (memory is mutable).
 
@@ -1004,7 +1107,8 @@ async def memocat_update(
         raise ValueError("updates must be a non-empty JSON object.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     return await _call(ks.update_value(
-        key=key, custom_key=custom_key, wait_for_index=wait_for_index, **updates
+        key=key, custom_key=custom_key, vector=vector,
+        wait_for_index=wait_for_index, **updates
     ))
 
 
@@ -1048,6 +1152,7 @@ async def memocat_remember_bulk(
     scope: Optional[str] = None,
     timestamp: Optional[bool] = None,
     wait_for_index: Optional[bool] = None,
+    vectors: Optional[list[list[float]]] = None,
 ) -> Any:
     """Store many memories at once; all are embedded and indexed automatically.
 
@@ -1063,9 +1168,13 @@ async def memocat_remember_bulk(
     """
     if not values or not all(isinstance(value, dict) and value for value in values):
         raise ValueError("values must be a non-empty list of non-empty JSON objects.")
+    if vectors is not None and len(vectors) != len(values):
+        raise ValueError("vectors must contain one embedding for every value.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     values = [_stamp(value, timestamp) for value in values]
-    return await _call(ks.insert_bulk(bulk_values=values, wait_for_index=wait_for_index))
+    return await _call(ks.insert_bulk(
+        bulk_values=values, vectors=vectors, wait_for_index=wait_for_index
+    ))
 
 
 @mcp.tool()

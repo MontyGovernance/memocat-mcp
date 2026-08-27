@@ -179,9 +179,13 @@ async def test_create_keyspace_prefers_storage_and_keeps_persistent_compatibilit
     assert legacy["status"] is True
     assert calls == [
         ("working", False),
-        {},
+        {"semantic": False},
         ("durable", True),
-        {"cache": 20, "compression": True},
+        {
+            "cache": 20,
+            "compression": True,
+            "semantic": False,
+        },
     ]
     assert server._ks_type_cache["working"] is False
     assert server._ks_type_cache["durable"] is True
@@ -212,7 +216,11 @@ async def test_create_keyspace_rejects_invalid_or_conflicting_schema_before_engi
 @pytest.mark.asyncio
 async def test_create_keyspace_can_enable_scoped_semantic_search(server, monkeypatch):
     class FakeKeyspace:
-        async def create_keyspace(self, **_kwargs):
+        def __init__(self):
+            self.creation_call = None
+
+        async def create_keyspace(self, **kwargs):
+            self.creation_call = kwargs
             return {"status": True, "payload": "created", "error": None}
 
     class FakeEngine:
@@ -230,9 +238,10 @@ async def test_create_keyspace_can_enable_scoped_semantic_search(server, monkeyp
             }
 
     engine = FakeEngine()
+    keyspace = FakeKeyspace()
     server._ks_type_cache.clear()
     monkeypatch.setattr(server, "_engine", engine)
-    monkeypatch.setattr(server, "_keyspace", lambda *_args, **_kwargs: FakeKeyspace())
+    monkeypatch.setattr(server, "_keyspace", lambda *_args, **_kwargs: keyspace)
 
     result = await server.memocat_create_keyspace(
         keyspace="research",
@@ -243,6 +252,11 @@ async def test_create_keyspace_can_enable_scoped_semantic_search(server, monkeyp
     assert result["status"] is True
     assert result["payload"]["semantic"] is True
     assert result["payload"]["semantic_model"] == "bge-small"
+    assert keyspace.creation_call == {
+        "cache": None,
+        "compression": False,
+        "semantic": True,
+    }
     assert engine.semantic_call["store"] == "memories"
     assert engine.semantic_call["keyspace"] == "research"
     assert engine.semantic_call["model"].value == "bge-small"

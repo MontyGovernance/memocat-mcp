@@ -172,6 +172,64 @@ async def test_disable_semantic_is_keyspace_scoped(server, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_semantic_status_and_vector_lifecycle_tools(server, monkeypatch):
+    class SemanticEngine:
+        store = "memories"
+
+        def __init__(self):
+            self.calls = []
+
+        async def get_semantic_status(self, **kwargs):
+            self.calls.append(("status", kwargs))
+            return {"status": True, "payload": "status", "error": None}
+
+        async def enable_precomputed_vector_search(self, *args):
+            self.calls.append(("external", args))
+            return {"status": True, "payload": "external", "error": None}
+
+        async def reembed_semantic_search(self, *args, **kwargs):
+            self.calls.append(("reembed", args, kwargs))
+            return {"status": True, "payload": "reembedded", "error": None}
+
+    engine = SemanticEngine()
+    monkeypatch.setattr(server, "_engine", engine)
+
+    assert (await server.memocat_semantic_status(keyspace="research"))["status"] is True
+    assert engine.calls[-1] == ("status", {"store": "memories", "keyspace": "research"})
+
+    assert (await server.memocat_enable_external_vectors(
+        keyspace="research", dimensions=1536, embedding_space="openai:v1"
+    ))["status"] is True
+    assert engine.calls[-1] == ("external", ("memories", "research", 1536, "openai:v1"))
+
+    assert (await server.memocat_reembed_semantic(
+        keyspace="research", semantic_model="bge-small", field="text"
+    ))["status"] is True
+    kind, args, kwargs = engine.calls[-1]
+    assert kind == "reembed"
+    assert args[0].value == "bge-small"
+    assert args[1:3] == ("memories", "research")
+    assert kwargs == {"field": "text"}
+
+
+@pytest.mark.asyncio
+async def test_vector_lifecycle_validation(server, monkeypatch):
+    class SemanticEngine:
+        store = None
+
+    monkeypatch.setattr(server, "_engine", SemanticEngine())
+
+    with pytest.raises(ValueError, match="dimensions"):
+        await server.memocat_enable_external_vectors("k", 0, "space", store="s")
+    with pytest.raises(ValueError, match="embedding_space"):
+        await server.memocat_enable_external_vectors("k", 3, "", store="s")
+    with pytest.raises(ValueError, match="semantic_model"):
+        await server.memocat_reembed_semantic("k", "unknown", store="s")
+    with pytest.raises(ValueError, match="store is required"):
+        await server.memocat_enable_external_vectors("k", 3, "space")
+
+
+@pytest.mark.asyncio
 async def test_semantic_management_validates_scope_before_engine(server, monkeypatch):
     class SemanticEngine:
         store = None

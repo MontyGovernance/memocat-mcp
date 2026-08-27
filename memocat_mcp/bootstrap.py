@@ -29,7 +29,6 @@ import hashlib
 import json
 import os
 import platform
-import re
 import secrets
 import shutil
 import socket
@@ -45,16 +44,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
-from urllib.parse import urljoin
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 21210
 DOWNLOAD_BASE = "https://downloads.montygovernance.com/bin"
 CONTAINER_NAME = "memocat-engine"
 DEFAULT_STORE = "memocat"
-MACOS_INSTALLER_BASE = "https://downloads.montygovernance.com/macos"
-WINDOWS_INSTALLER_BASE = "https://downloads.montygovernance.com/windows"
-DEFAULT_ENGINE_VERSION = "1.2.3"
+RELEASE_CATALOG_BASE = "https://infra.montygovernance.com"
 _BINARY_NAMES = ("montycat_bin", "montycat_bin.exe")
 _APT_SEMANTIC_INSTALL = (
     "curl -fsSL https://repo-deb.montygovernance.com/KEY.gpg "
@@ -217,55 +213,56 @@ def resolve_binary_url(version: str = "latest") -> Optional[str]:
 
 
 def installer_url(version: Optional[str] = None) -> Optional[str]:
-    """Pinned/fallback Semantic installer URL for the current platform."""
+    """Explicit installer override for air-gapped or release-pinned installs.
+
+    Normal installs discover the current artifact through the release catalog;
+    this direct URL exists only for an operator who deliberately names a
+    version or complete URL.
+    """
     override = os.environ.get("MEMOCAT_INSTALLER_URL")
     if override:
         return override
-    version = version or os.environ.get("MEMOCAT_ENGINE_VERSION", DEFAULT_ENGINE_VERSION)
+    version = version or os.environ.get("MEMOCAT_ENGINE_VERSION")
+    if not version:
+        return None
     system = platform.system().lower()
     if system == "darwin":
         if platform.machine().lower() not in ("arm64", "aarch64"):
             return None
-        return f"{MACOS_INSTALLER_BASE}/montycat-semantic_{version}_arm64.pkg"
+        return f"https://downloads.montygovernance.com/macos/montycat-semantic_{version}_arm64.pkg"
     if system == "windows" and platform.machine().lower() in ("amd64", "x86_64"):
-        return f"{WINDOWS_INSTALLER_BASE}/montycat-semantic_{version}.msi"
+        return f"https://downloads.montygovernance.com/windows/montycat-semantic_{version}.msi"
     return None
 
 
 def _discover_latest_installer_url() -> Optional[str]:
-    """Choose the highest stable Semantic package in the platform index.
-
-    Download directories are the release source of truth. Version comparison
-    is numeric, so 1.10.0 correctly sorts after 1.9.9. If an index is
-    unavailable, callers fall back to DEFAULT_ENGINE_VERSION.
-    """
+    """Return the catalog-selected Semantic installer for this platform."""
     system = platform.system().lower()
     machine = platform.machine().lower()
     if system == "darwin" and machine in ("arm64", "aarch64"):
-        base = MACOS_INSTALLER_BASE + "/"
-        pattern = re.compile(
-            r"(montycat-semantic_(\d+)\.(\d+)\.(\d+)_arm64\.pkg)"
-        )
+        catalog_platform, required_arch = "darwin", "arm64"
     elif system == "windows" and machine in ("amd64", "x86_64"):
-        base = WINDOWS_INSTALLER_BASE + "/"
-        pattern = re.compile(
-            r"(montycat-semantic_(\d+)\.(\d+)\.(\d+)\.msi)"
-        )
+        catalog_platform, required_arch = "windows", None
     else:
         return None
+    base = os.environ.get("MEMOCAT_RELEASES_URL", RELEASE_CATALOG_BASE).rstrip("/")
     try:
-        with urllib.request.urlopen(base, timeout=15) as response:  # noqa: S310
-            listing = response.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, OSError):
+        with urllib.request.urlopen(f"{base}/v1/releases/{catalog_platform}", timeout=15) as response:  # noqa: S310
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError):
         return None
-    candidates = {
-        (int(major), int(minor), int(patch), filename)
-        for filename, major, minor, patch in pattern.findall(listing)
-    }
-    if not candidates:
+    editions = payload.get("editions") if isinstance(payload, dict) else None
+    if not isinstance(editions, list):
         return None
-    filename = max(candidates)[3]
-    return urljoin(base, filename)
+    for release in editions:
+        if not isinstance(release, dict) or release.get("edition") != "semantic":
+            continue
+        if required_arch and release.get("arch") != required_arch:
+            continue
+        url = release.get("url")
+        if isinstance(url, str) and url.startswith(("https://", "http://")):
+            return url
+    return None
 
 
 def _sha256(path: Path) -> str:

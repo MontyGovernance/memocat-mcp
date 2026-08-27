@@ -1,7 +1,12 @@
 # MemoCat MCP Server — Self-Hosted AI Agent Memory and Vector RAG
 
-**Give Claude, Cursor, and other MCP clients private, persistent, semantically
-searchable long-term memory.** `memocat-mcp` is a
+[![PyPI](https://img.shields.io/pypi/v/memocat-mcp.svg)](https://pypi.org/project/memocat-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/memocat-mcp.svg)](https://pypi.org/project/memocat-mcp/)
+[![License](https://img.shields.io/github/license/MontyGovernance/memocat-mcp.svg)](https://github.com/MontyGovernance/memocat-mcp/blob/main/LICENSE)
+
+**MemoCat is a self-hosted MCP memory server for Claude Desktop, Cursor,
+ChatGPT integrations, and autonomous AI agents.** It gives MCP clients private,
+persistent, semantically searchable long-term memory. `memocat-mcp` is a
 [Model Context Protocol](https://modelcontextprotocol.io) server for
 [Montycat](https://montygovernance.com), combining AI agent memory, semantic
 search, vector RAG, and NoSQL storage in one self-hosted service.
@@ -23,7 +28,7 @@ bill.
 ## Why
 
 LLM agents forget context between runs. MemoCat stores each fact in Montycat,
-embeds and indexes it automatically, and retrieves relevant memories through 19
+embeds and indexes it automatically, and retrieves relevant memories through 22
 agent-readable MCP tools. It is both a retrieval layer for RAG and a durable
 memory layer for autonomous agents.
 
@@ -45,17 +50,20 @@ uvx memocat-mcp
 
 | Tool | What it does |
 |------|--------------|
-| `memocat_semantic_search` | Recall by **meaning** (vector kNN) — the core RAG/memory tool. |
-| `memocat_remember` | Store a fact/record; embedded + indexed automatically. |
+| `memocat_semantic_search` | Recall by **meaning** (vector kNN), with text or a supplied query vector. |
+| `memocat_remember` | Store a fact/record; embedded automatically or indexed with a supplied vector. |
 | `memocat_remember_bulk` | Store many memories at once. |
 | `memocat_recall` | Fetch by exact key or by field filter. |
 | `memocat_list_memories` | Browse / list stored memories (optionally most-recent first). |
 | `memocat_update` | Revise a memory in place — memory is mutable. |
 | `memocat_forget` | Delete a stored record. |
 | `memocat_list_keyspaces` | Discover available memory namespaces. |
-| `memocat_create_keyspace` | Provision a new memory namespace. |
+| `memocat_create_keyspace` | Provision a namespace; superowners also create a missing configured store in the same engine request. |
 | `memocat_remove_keyspace` | Permanently remove an authorized memory namespace with safe watch cleanup. |
 | `memocat_enable_semantic` | Enable semantic search and backfill one authorized keyspace. |
+| `memocat_enable_external_vectors` | Enroll one keyspace for caller-supplied vectors and a named embedding space. |
+| `memocat_semantic_status` | Inspect semantic configuration and backfill state. |
+| `memocat_reembed_semantic` | Replace an enrolled text embedding model and backfill the keyspace. |
 | `memocat_disable_semantic` | Disable semantic search for one authorized keyspace. |
 | `memocat_start_snapshots` | Start scheduled snapshots for one authorized in-memory keyspace. |
 | `memocat_stop_snapshots` | Stop scheduled snapshots for one authorized in-memory keyspace. |
@@ -91,9 +99,14 @@ Subscriptions open on demand and close when idle
 
 ## Requirements
 
-- A running **Montycat Semantic** engine (semantic search is on by default there).
+- Python 3.10+ through `uv` / `uvx`.
+- Access to a **Montycat Semantic** engine. `uvx memocat-mcp` first reuses an
+  existing engine, then attempts the supported native/platform installation
+  path, and finally falls back to Docker. Semantic search is enabled by default
+  in the Semantic edition.
 
-  **Pick the tag for your CPU** — the tag carries the architecture:
+  To start the engine manually with Docker, pick the tag for your CPU—the tag
+  carries the architecture:
 
   **Apple Silicon (M1/M2/M3/M4) — use `arm64-semantic`:**
   ```bash
@@ -120,8 +133,6 @@ Subscriptions open on demand and close when idle
   `memocat_await_memory_change` (real-time watch); without it the other tools
   still work.
 
-- Python 3.10+ (via `uv` / `uvx`).
-
 ## Docker Compose deployment
 
 Use Compose when you want a reproducible local deployment with a persistent
@@ -145,7 +156,7 @@ docker compose up -d montycat
 docker compose build mcp
 ```
 
-The image installs the released `montycat>=1.0.8,<2` Python client declared in
+The image installs the released `montycat>=1.2.2,<2` Python client declared in
 the package metadata.
 
 The engine data is stored in the named `montycat_data` volume. Ports `21210`
@@ -191,11 +202,12 @@ host/port settings. If none is running, it looks for an installed
 | Linux AMD64 | Run the official one-command APT setup for `montycat-semantic` (may prompt for sudo) | Docker |
 | Other platforms | — | Docker |
 
-MemoCat scans the macOS or Windows download index and numerically selects the
-highest stable Semantic package. The package's adjacent `.sha256` is required
-and verified before Installer opens; verified packages are cached by filename.
-If latest-version discovery is unavailable, automatic native installation
-falls through to Docker instead of silently installing an older package.
+MemoCat asks the shared Montycat release catalog for the current Semantic
+artifact for macOS or Windows. Artifact URLs are treated as opaque, and the
+package's adjacent `.sha256` is required and verified before Installer opens;
+verified packages are cached by filename. If catalog discovery is unavailable,
+automatic native installation falls through to Docker instead of silently
+installing an older package.
 Override the URL with `MEMOCAT_INSTALLER_URL`, pin a release with
 `MEMOCAT_ENGINE_VERSION`, or adjust the Installer completion budget with
 `MEMOCAT_INSTALLER_TIMEOUT`. On Linux, set
@@ -281,8 +293,11 @@ changes so they cannot be replayed after access is restored.
 
 `memocat_create_keyspace` works with delegated-owner credentials when policy
 grants `provision-keyspace` for the requested store, storage type, and semantic
-model. `memocat_forget` deletes one record and requires write authority for its
-keyspace. The engine makes every final authorization decision.
+model. The store must already exist for delegated owners. With superowner
+credentials, creating the first keyspace also creates a missing configured
+store in the same engine request. `memocat_forget` deletes one record and
+requires write authority for its keyspace. The engine makes every final
+authorization decision.
 
 ## Memory scoping (multi-tenant)
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import tarfile
 import zipfile
@@ -26,7 +27,7 @@ def isolated_home(tmp_path, monkeypatch):
                 "MONTYCAT_USERNAME", "MONTYCAT_PASSWORD", "MONTYCAT_HOST",
                 "MONTYCAT_PORT", "MONTYCAT_STORE", "MEMOCAT_INSTALLER_URL",
                 "MEMOCAT_ENGINE_VERSION", "MEMOCAT_INSTALLER_TIMEOUT",
-                "MONTYCAT_SEMANTIC"):
+                "MEMOCAT_RELEASES_URL", "MONTYCAT_SEMANTIC"):
         monkeypatch.delenv(var, raising=False)
     return tmp_path
 
@@ -59,12 +60,12 @@ def test_binary_url_override_wins(monkeypatch):
     assert bootstrap.resolve_binary_url() == "file:///tmp/engine.tar.gz"
 
 
-def test_apple_silicon_semantic_installer_url(monkeypatch):
+def test_explicit_engine_version_uses_direct_installer_url(monkeypatch):
     monkeypatch.setattr(bootstrap.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(bootstrap.platform, "machine", lambda: "arm64")
-    assert bootstrap.installer_url() == (
+    assert bootstrap.installer_url("1.3.2") == (
         "https://downloads.montygovernance.com/macos/"
-        "montycat-semantic_1.2.3_arm64.pkg"
+        "montycat-semantic_1.3.2_arm64.pkg"
     )
 
 
@@ -74,44 +75,41 @@ def test_intel_mac_does_not_install_nonexistent_semantic_package(monkeypatch):
     assert bootstrap.installer_url() is None
 
 
-def test_windows_installer_url_is_retained(monkeypatch):
+def test_windows_explicit_installer_url_is_retained(monkeypatch):
     monkeypatch.setattr(bootstrap.platform, "system", lambda: "Windows")
     monkeypatch.setattr(bootstrap.platform, "machine", lambda: "AMD64")
-    assert bootstrap.installer_url() == (
+    assert bootstrap.installer_url("1.3.2") == (
         "https://downloads.montygovernance.com/windows/"
-        "montycat-semantic_1.2.3.msi"
+        "montycat-semantic_1.3.2.msi"
     )
 
 
 @pytest.mark.parametrize(
-    ("system", "machine", "listing", "expected"),
+    ("system", "machine", "releases", "expected"),
     [
         (
             "Darwin",
             "arm64",
-            """
-            <a href="montycat-semantic_1.9.9_arm64.pkg">old</a>
-            <a href="montycat-semantic_1.10.0_arm64.pkg">new</a>
-            <a href="montycat_9.0.0.pkg">base ignored</a>
-            """,
-            "https://downloads.montygovernance.com/macos/"
-            "montycat-semantic_1.10.0_arm64.pkg",
+            [
+                {"edition": "base", "url": "https://downloads.example.com/macos/montycat_9.0.0.pkg"},
+                {"edition": "semantic", "arch": "x86_64", "url": "https://downloads.example.com/macos/wrong.pkg"},
+                {"edition": "semantic", "arch": "arm64", "url": "https://downloads.example.com/macos/montycat-semantic_1.10.0_arm64.pkg"},
+            ],
+            "https://downloads.example.com/macos/montycat-semantic_1.10.0_arm64.pkg",
         ),
         (
             "Windows",
             "AMD64",
-            """
-            montycat-semantic_1.2.2.msi
-            montycat-semantic_1.3.0.msi
-            montycat_9.0.0.msi
-            """,
-            "https://downloads.montygovernance.com/windows/"
-            "montycat-semantic_1.3.0.msi",
+            [
+                {"edition": "base", "url": "https://downloads.example.com/windows/montycat_9.0.0.msi"},
+                {"edition": "semantic", "url": "https://downloads.example.com/windows/montycat-semantic_1.3.0.msi"},
+            ],
+            "https://downloads.example.com/windows/montycat-semantic_1.3.0.msi",
         ),
     ],
 )
-def test_latest_semantic_installer_is_discovered_numerically(
-    monkeypatch, system, machine, listing, expected
+def test_latest_semantic_installer_is_discovered_from_release_catalog(
+    monkeypatch, system, machine, releases, expected
 ):
     class Response:
         def __enter__(self):
@@ -121,7 +119,7 @@ def test_latest_semantic_installer_is_discovered_numerically(
             return None
 
         def read(self):
-            return listing.encode()
+            return json.dumps({"schema": 1, "editions": releases}).encode()
 
     monkeypatch.setattr(bootstrap.platform, "system", lambda: system)
     monkeypatch.setattr(bootstrap.platform, "machine", lambda: machine)

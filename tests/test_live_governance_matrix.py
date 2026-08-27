@@ -164,6 +164,8 @@ async def test_matrix_03_disallowed_keyspace_type_is_rejected(governance):
         keyspace=g.unique("denied_persistent"), storage="persistent"
     )
     assert result.get("status") is False, result
+    assert "Governance permission denied" in result.get("error", "")
+    assert "provision-keyspace" in result.get("error", "")
 
 
 async def test_matrix_04_05_semantic_model_constraints(governance):
@@ -186,6 +188,8 @@ async def test_matrix_04_05_semantic_model_constraints(governance):
         keyspace=name, semantic_model="bge-base"
     )
     assert denied.get("status") is False, denied
+    assert "Governance permission denied" in denied.get("error", "")
+    assert "manage-semantic" in denied.get("error", "")
 
     allowed = await g.server.memocat_enable_semantic(
         keyspace=name, semantic_model="bge-small"
@@ -225,8 +229,85 @@ async def test_matrix_08_09_explicit_creator_denials(governance):
         keyspace=name, semantic_model="bge-small"
     )
     assert semantic.get("status") is False, semantic
+    assert "Governance permission denied" in semantic.get("error", "")
+    assert "manage-semantic" in semantic.get("error", "")
     removed = await g.server.memocat_remove_keyspace(keyspace=name)
     assert removed.get("status") is False, removed
+    assert "Governance permission denied" in removed.get("error", "")
+    assert "remove-keyspace" in removed.get("error", "")
+
+
+async def test_creator_authority_revoke_restore_and_resource_lifecycle(governance):
+    g = governance
+    username, owner = await g.owner("creator_revoke")
+    await g.grant_provision(
+        username,
+        types=[PolicyKeyspaceType.IN_MEMORY],
+        models=[SemanticModel.BGE_SMALL],
+    )
+    g.use(owner)
+    name = g.unique("creator_revoke")
+    created = await g.server.memocat_create_keyspace(keyspace=name, storage="inmemory")
+    assert created.get("status") is True, created
+    g.keyspaces[name] = False
+
+    revoked = await g.admin.policy_revoke(
+        owner=username,
+        capability=PolicyCapability.MANAGE_SCHEMA,
+        store=g.admin.store,
+        keyspace=name,
+    )
+    assert revoked.get("status") is True, revoked
+    assert revoked["payload"]["changed"] is True
+    assert revoked["payload"]["creator_authority"] is True
+
+    denied = await owner.policy_explain(
+        capability=PolicyCapability.MANAGE_SCHEMA,
+        store=g.admin.store,
+        keyspace=name,
+    )
+    assert denied["payload"]["allowed"] is False
+    assert denied["payload"]["source"] == "creator-revocation"
+
+    restored = await g.admin.policy_grant(
+        owner=username,
+        capability=PolicyCapability.MANAGE_SCHEMA,
+        store=g.admin.store,
+        keyspace=name,
+    )
+    assert restored.get("status") is True, restored
+    assert restored["payload"]["changed"] is True
+    assert restored["payload"]["creator_authority"] is True
+
+    allowed = await owner.policy_explain(
+        capability=PolicyCapability.MANAGE_SCHEMA,
+        store=g.admin.store,
+        keyspace=name,
+    )
+    assert allowed["payload"]["allowed"] is True
+    assert allowed["payload"]["source"] == "ownership"
+
+    await g.admin.policy_revoke(
+        owner=username,
+        capability=PolicyCapability.MANAGE_SCHEMA,
+        store=g.admin.store,
+        keyspace=name,
+    )
+    removed = await g.admin_keyspace(name, False).remove_keyspace()
+    assert removed.get("status") is True, removed
+    g.keyspaces.pop(name)
+
+    g.use(owner)
+    recreated = await g.server.memocat_create_keyspace(keyspace=name, storage="inmemory")
+    assert recreated.get("status") is True, recreated
+    g.keyspaces[name] = False
+    reset = await owner.policy_explain(
+        capability=PolicyCapability.MANAGE_SCHEMA,
+        store=g.admin.store,
+        keyspace=name,
+    )
+    assert reset["payload"]["allowed"] is True
+    assert reset["payload"]["source"] == "ownership"
 
 
 async def test_matrix_10_11_12_13_14_cross_owner_isolation(
