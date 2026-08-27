@@ -8,8 +8,14 @@
 ChatGPT integrations, and autonomous AI agents.** It gives MCP clients private,
 persistent, semantically searchable long-term memory. `memocat-mcp` is a
 [Model Context Protocol](https://modelcontextprotocol.io) server for
-[Montycat](https://montygovernance.com), combining AI agent memory, semantic
-search, vector RAG, and NoSQL storage in one self-hosted service.
+[Montycat](https://montygovernance.com), an **all-in-one, self-hosted data and
+memory engine for AI agents**.
+
+Montycat combines the database, vector search, on-device embeddings, persistent
+and in-memory storage, real-time subscriptions, and data governance in one
+engine. MemoCat exposes those capabilities through MCP, so an agent does not
+need a separate vector database, embedding API, event broker, or governance
+service to build persistent memory and retrieval-augmented generation (RAG).
 
 Memories are embedded on-device and recalled by meaning, metadata, timestamp,
 or exact key. No cloud vector database, external embedding API, or per-query
@@ -30,13 +36,44 @@ bill.
 LLM agents forget context between runs. MemoCat stores each fact in Montycat,
 embeds and indexes it automatically, and retrieves relevant memories through 22
 agent-readable MCP tools. It is both a retrieval layer for RAG and a durable
-memory layer for autonomous agents.
+memory layer for autonomous agents. Unlike a collection of separate database,
+vector, embedding, messaging, and policy services, Montycat provides the full
+memory stack as one all-in-one engine that can run under your control.
 
-## Quick start
+## Install MemoCat MCP
+
+The fastest option is [`uvx`](https://docs.astral.sh/uv/guides/tools/), which
+runs the latest published package in an isolated environment:
 
 ```bash
 uvx memocat-mcp
 ```
+
+If `uvx` is not installed yet:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uvx memocat-mcp
+```
+
+For a persistent command-line installation, use `pipx`:
+
+```bash
+pipx install memocat-mcp
+memocat-mcp
+```
+
+You can also install it into an existing Python environment:
+
+```bash
+python -m pip install memocat-mcp
+memocat-mcp
+```
+
+MemoCat requires Python 3.10 or newer. The package is published as
+[`memocat-mcp` on PyPI](https://pypi.org/project/memocat-mcp/).
+
+## Quick start with a Montycat engine
 
 MemoCat reuses a configured Montycat Semantic engine or attempts the supported
 native/Docker bootstrap path. For an existing engine:
@@ -97,9 +134,9 @@ pushed to them as well. Both surfaces share one engine subscription.
 Subscriptions open on demand and close when idle
 (`MONTYCAT_WATCH_IDLE_TIMEOUT`), so users who never watch pay nothing.
 
-## Requirements
+## Montycat Semantic engine requirements
 
-- Python 3.10+ through `uv` / `uvx`.
+- Python 3.10+ when installing MemoCat through `uv`, `pipx`, or `pip`.
 - Access to a **Montycat Semantic** engine. `uvx memocat-mcp` first reuses an
   existing engine, then attempts the supported native/platform installation
   path, and finally falls back to Docker. Semantic search is enabled by default
@@ -216,9 +253,9 @@ command. ARM64 Linux goes directly to Docker because the official APT repository
 is AMD64-only. Set `MEMOCAT_AUTOSTART=off` to disable all installation/start
 attempts.
 
-## Use with Claude Desktop / Cursor
+## Connect Claude Desktop
 
-Add to your MCP client config (e.g. `claude_desktop_config.json`):
+Add MemoCat to `claude_desktop_config.json`, then restart Claude Desktop:
 
 ```json
 {
@@ -233,6 +270,62 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`):
   }
 }
 ```
+
+## Connect Cursor
+
+Add the same server definition to your Cursor MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "memocat": {
+      "command": "uvx",
+      "args": ["memocat-mcp"],
+      "env": {
+        "MONTYCAT_URI": "montycat://memory-agent:agent-password@localhost:21210/mystore"
+      }
+    }
+  }
+}
+```
+
+## Connect OpenAI Codex
+
+Codex can register the local stdio server directly from a terminal:
+
+```bash
+codex mcp add memocat \
+  --env MONTYCAT_URI="montycat://memory-agent:agent-password@localhost:21210/mystore" \
+  -- uvx memocat-mcp
+```
+
+Confirm the registration with `codex mcp list`, then start a new Codex session.
+
+## ChatGPT integration
+
+MemoCat currently runs as a local **stdio MCP server**. It works directly with
+clients that can launch local MCP commands, including Claude Desktop, Cursor,
+and Codex. A ChatGPT connector requires a remotely reachable MCP transport and
+cannot connect directly to this stdio command. Remote HTTP transport is not
+included in the current package; do not expose the engine's database port as an
+MCP endpoint.
+
+## Connect to a remote TLS engine
+
+Keep the normal `montycat://` connection URI and enable TLS separately:
+
+```bash
+export MONTYCAT_URI="montycat://memory-agent:agent-password@db.example.com:21210/mystore"
+export MONTYCAT_TLS=true
+uvx memocat-mcp
+```
+
+For a desktop client, add `"MONTYCAT_TLS": "true"` beside `MONTYCAT_URI` in
+the server's `env` object. The remote engine must present a certificate trusted
+by the machine running MemoCat. Setting `MONTYCAT_URI` disables local engine
+auto-install and auto-start because it explicitly selects a managed engine.
+
+## Security and delegated-owner setup
 
 Use a delegated Montycat owner such as `memory-agent` for the MCP process.
 Grant that owner only the keyspace read/write and provisioning capabilities its
@@ -331,10 +424,13 @@ governance administration.
 
 ## Links
 
-- Montycat: https://montygovernance.com
-- Docs: https://montygovernance.com/docs
-- Engine on Docker Hub: https://hub.docker.com/r/montygovernance/montycat
-- Python client (PyPI): https://pypi.org/project/montycat/
+- [MemoCat MCP on PyPI](https://pypi.org/project/memocat-mcp/)
+- [MemoCat MCP source](https://github.com/MontyGovernance/memocat-mcp)
+- [Report an issue](https://github.com/MontyGovernance/memocat-mcp/issues)
+- [Changelog](https://github.com/MontyGovernance/memocat-mcp/blob/main/CHANGELOG.md)
+- [Montycat documentation](https://montygovernance.com/docs)
+- [Montycat Semantic engine on Docker Hub](https://hub.docker.com/r/montygovernance/montycat)
+- [Montycat Python client on PyPI](https://pypi.org/project/montycat/)
 
 ## License
 
