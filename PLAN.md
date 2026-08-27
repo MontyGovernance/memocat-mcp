@@ -1,6 +1,6 @@
 # MemoCat — MCP Server for Montycat — Build & Discoverability Plan
 
-**Package:** `memocat-mcp` · **Language:** Python (FastMCP) · **Status:** v0.4 in progress, unreleased
+**Package:** `memocat-mcp` · **Language:** Python (FastMCP) · **Status:** v0.4.0 released; v0.4.1 release candidate
 
 > **Done so far:** 9 tools (semantic_search, remember, remember_bulk, recall,
 > list_memories, update, forget, list_keyspaces, create_keyspace), multi-tenant

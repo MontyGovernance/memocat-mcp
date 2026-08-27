@@ -1,9 +1,11 @@
 # Publishing MemoCat MCP
 
-## First-release prerequisites
+## Release prerequisites
 
-1. Confirm the `memocat-mcp` project name is available on PyPI.
-2. Publish a Montycat Python SDK release satisfying `montycat>=1.2.2,<2`.
+1. Confirm access to the existing
+   [`memocat-mcp` PyPI project](https://pypi.org/project/memocat-mcp/).
+2. Confirm a published Montycat Python SDK release satisfies
+   `montycat>=1.2.2,<2`.
    It must contain typed governance, scoped/hybrid semantic methods,
    query/write vectors, external-vector enrollment, semantic status,
    re-embedding, and subscription cleanup behavior used here.

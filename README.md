@@ -213,7 +213,7 @@ client to invoke the Compose service on demand:
       "command": "docker",
       "args": [
         "compose",
-        "-f", "/absolute/path/to/montycat_mcp/compose.yaml",
+        "-f", "/absolute/path/to/memocat-mcp/compose.yaml",
         "run", "--rm", "-T", "mcp"
       ]
     }
