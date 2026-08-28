@@ -8,6 +8,10 @@ All notable changes to MemoCat MCP are documented here.
 
 - Add the official MCP Registry ownership marker and `server.json` manifest for
   `io.github.MontyGovernance/memocat-mcp`.
+- Prepare a multi-architecture Docker Hub distribution with OCI metadata and
+  the official MCP Registry ownership label.
+- Run the MCP image as an unprivileged user and wait for the Compose Semantic
+  engine to become healthy before starting MCP.
 
 ## 0.4.1 — 2026-08-27
 

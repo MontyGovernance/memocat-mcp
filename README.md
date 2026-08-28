@@ -184,6 +184,7 @@ Create a `.env` file beside `compose.yaml`:
 MONTYCAT_USERNAME=admin
 MONTYCAT_PASSWORD=replace-with-a-strong-password
 MONTYCAT_STORE=memories
+MEMOCAT_VERSION=0.4.2
 # Apple Silicon: arm64-semantic. Intel/AMD64: semantic.
 MONTYCAT_IMAGE_TAG=semantic
 ```
@@ -194,6 +195,17 @@ Start the engine and build the MCP image:
 docker compose up -d montycat
 docker compose build mcp
 ```
+
+After the public Docker image is released, use it instead of building from
+source:
+
+```bash
+docker pull montygovernance/memocat-mcp:0.4.2
+```
+
+The Compose service uses `montygovernance/memocat-mcp:${MEMOCAT_VERSION}` and
+waits for the Semantic engine health check before launching MCP. The image runs
+as an unprivileged `memocat` user and supports both AMD64 and ARM64.
 
 The image installs the released `montycat>=1.2.2,<2` Python client declared in
 the package metadata.

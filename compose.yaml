@@ -12,6 +12,12 @@ services:
       - "${MONTYCAT_SUBSCRIPTION_PORT:-21211}:21211"
     volumes:
       - montycat_data:/var/lib/.montycat
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/21210'"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
     restart: unless-stopped
 
   # This is deliberately a stdio service: start it through `docker compose run
@@ -19,7 +25,10 @@ services:
   mcp:
     build:
       context: .
-    image: memocat-mcp:local
+      args:
+        VERSION: ${MEMOCAT_VERSION:-0.4.2}
+        VCS_REF: ${MEMOCAT_VCS_REF:-unknown}
+    image: montygovernance/memocat-mcp:${MEMOCAT_VERSION:-0.4.2}
     environment:
       MONTYCAT_HOST: montycat
       MONTYCAT_PORT: "21210"
@@ -29,7 +38,8 @@ services:
       MONTYCAT_SUBSCRIPTION_PORT: "21211"
       MEMOCAT_AUTOSTART: "off"
     depends_on:
-      - montycat
+      montycat:
+        condition: service_healthy
     stdin_open: true
     profiles: ["mcp"]
 
