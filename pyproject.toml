@@ -1,6 +1,6 @@
 [project]
 name = "memocat-mcp"
-version = "0.4.1"
+version = "0.4.2"
 description = "MCP server for self-hosted AI agent memory, semantic search, vector RAG, and Montycat."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -70,7 +70,7 @@ Homepage = "https://montygovernance.com"
 Documentation = "https://montygovernance.com/docs"
 Repository = "https://github.com/MontyGovernance/memocat-mcp"
 Issues = "https://github.com/MontyGovernance/memocat-mcp/issues"
-Changelog = "https://github.com/MontyGovernance/memocat-mcp/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/MontyGovernance/memocat-mcp/blob/master/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
@@ -89,6 +89,7 @@ include = [
     "/pyproject.toml",
     "/Dockerfile",
     "/compose.yaml",
+    "/server.json",
 ]
 
 [project.optional-dependencies]

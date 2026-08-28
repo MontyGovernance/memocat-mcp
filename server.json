@@ -1,0 +1,37 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.MontyGovernance/memocat-mcp",
+  "title": "MemoCat",
+  "description": "All-in-one, self-hosted AI memory with semantic search, vector RAG, live updates, and governance.",
+  "repository": {
+    "url": "https://github.com/MontyGovernance/memocat-mcp",
+    "source": "github"
+  },
+  "version": "0.4.2",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "memocat-mcp",
+      "version": "0.4.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MONTYCAT_URI",
+          "description": "Optional Montycat engine URI: montycat://user:password@host:port/store",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MONTYCAT_TLS",
+          "description": "Set to true when connecting to a TLS-enabled remote Montycat engine",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

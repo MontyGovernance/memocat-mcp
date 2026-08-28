@@ -1,8 +1,10 @@
 # MemoCat MCP Server — Self-Hosted AI Agent Memory and Vector RAG
 
+<!-- mcp-name: io.github.MontyGovernance/memocat-mcp -->
+
 [![PyPI](https://img.shields.io/pypi/v/memocat-mcp.svg)](https://pypi.org/project/memocat-mcp/)
 [![Python](https://img.shields.io/pypi/pyversions/memocat-mcp.svg)](https://pypi.org/project/memocat-mcp/)
-[![License](https://img.shields.io/github/license/MontyGovernance/memocat-mcp.svg)](https://github.com/MontyGovernance/memocat-mcp/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/MontyGovernance/memocat-mcp.svg)](https://github.com/MontyGovernance/memocat-mcp/blob/master/LICENSE)
 
 **MemoCat is a self-hosted MCP memory server for Claude Desktop, Cursor,
 ChatGPT integrations, and autonomous AI agents.** It gives MCP clients private,
@@ -427,7 +429,7 @@ governance administration.
 - [MemoCat MCP on PyPI](https://pypi.org/project/memocat-mcp/)
 - [MemoCat MCP source](https://github.com/MontyGovernance/memocat-mcp)
 - [Report an issue](https://github.com/MontyGovernance/memocat-mcp/issues)
-- [Changelog](https://github.com/MontyGovernance/memocat-mcp/blob/main/CHANGELOG.md)
+- [Changelog](https://github.com/MontyGovernance/memocat-mcp/blob/master/CHANGELOG.md)
 - [Montycat documentation](https://montygovernance.com/docs)
 - [Montycat Semantic engine on Docker Hub](https://hub.docker.com/r/montygovernance/montycat)
 - [Montycat Python client on PyPI](https://pypi.org/project/montycat/)

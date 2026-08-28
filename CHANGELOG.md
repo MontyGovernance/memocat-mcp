@@ -2,6 +2,13 @@
 
 All notable changes to MemoCat MCP are documented here.
 
+## 0.4.2 — 2026-08-27
+
+### Added
+
+- Add the official MCP Registry ownership marker and `server.json` manifest for
+  `io.github.MontyGovernance/memocat-mcp`.
+
 ## 0.4.1 — 2026-08-27
 
 ### Fixed
