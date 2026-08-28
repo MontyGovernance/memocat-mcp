@@ -27,7 +27,9 @@ def isolated_home(tmp_path, monkeypatch):
                 "MONTYCAT_USERNAME", "MONTYCAT_PASSWORD", "MONTYCAT_HOST",
                 "MONTYCAT_PORT", "MONTYCAT_STORE", "MEMOCAT_INSTALLER_URL",
                 "MEMOCAT_ENGINE_VERSION", "MEMOCAT_INSTALLER_TIMEOUT",
-                "MEMOCAT_RELEASES_URL", "MONTYCAT_SEMANTIC"):
+                "MEMOCAT_RELEASES_URL", "MONTYCAT_SEMANTIC",
+                "MEMOCAT_ENGINE_BINARY", "MEMOCAT_ENGINE_CLI",
+                "MEMOCAT_PROBE_TIMEOUT"):
         monkeypatch.delenv(var, raising=False)
     return tmp_path
 
@@ -134,6 +136,70 @@ def test_latest_semantic_installer_is_discovered_from_release_catalog(
 async def test_latest_discovery_failure_does_not_install_stale_fallback(monkeypatch):
     monkeypatch.setattr(bootstrap, "_discover_latest_installer_url", lambda: None)
     assert await bootstrap.download_installer() is None
+
+
+def _capture_requests(monkeypatch, payload=b"{}"):
+    """Record the Request objects handed to urlopen."""
+    seen = []
+
+    class Response:
+        def __init__(self):
+            # `_fetch` streams through shutil.copyfileobj, which calls read(size).
+            self._body = io.BytesIO(payload)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, *args):
+            return self._body.read(*args)
+
+    def fake_urlopen(request, *_args, **_kwargs):
+        seen.append(request)
+        return Response()
+
+    monkeypatch.setattr(bootstrap.urllib.request, "urlopen", fake_urlopen)
+    return seen
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(
+            lambda tmp_path: bootstrap._discover_latest_installer_url(),
+            id="catalog-discovery",
+        ),
+        pytest.param(
+            lambda tmp_path: bootstrap._fetch(
+                "https://downloads.example.com/x.pkg", tmp_path / "out"
+            ),
+            id="artifact-download",
+        ),
+    ],
+)
+def test_downloads_identify_themselves_rather_than_using_python_urllib(
+    monkeypatch, tmp_path, call
+):
+    """Both hosts answer 403 to urllib's default `Python-urllib/x.y` agent.
+
+    Every request must carry the package's own agent instead. Without it the
+    catalog and artifact fetches fail closed, `start_native` returns False with
+    only a debug log, and a machine without Docker cannot bootstrap an engine.
+    """
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(bootstrap.platform, "machine", lambda: "arm64")
+    seen = _capture_requests(monkeypatch)
+
+    call(tmp_path)
+
+    assert seen, "no request was issued"
+    for request in seen:
+        agent = request.get_header("User-agent")
+        assert agent, "request carried no User-Agent"
+        assert not agent.startswith("Python-urllib")
+        assert agent.startswith("memocat-mcp/")
 
 
 @pytest.mark.asyncio
@@ -372,6 +438,37 @@ async def test_existing_engine_short_circuits_everything(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_existing_managed_engine_restores_saved_credentials(monkeypatch, tmp_path):
+    monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: True)
+    monkeypatch.setenv("MONTYCAT_HOME", str(tmp_path))
+    monkeypatch.delenv("MONTYCAT_URI", raising=False)
+    monkeypatch.delenv("MONTYCAT_USERNAME", raising=False)
+    monkeypatch.delenv("MONTYCAT_PASSWORD", raising=False)
+    (tmp_path / "memocat.json").write_text(
+        '{"username":"memocat","password":"saved-secret","store":"memories"}'
+    )
+
+    assert await bootstrap.ensure_engine() == "existing"
+    assert os.environ["MONTYCAT_USERNAME"] == "memocat"
+    assert os.environ["MONTYCAT_PASSWORD"] == "saved-secret"
+    assert os.environ["MONTYCAT_STORE"] == "memories"
+
+
+@pytest.mark.asyncio
+async def test_unknown_existing_engine_does_not_invent_credentials(monkeypatch, tmp_path):
+    monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: True)
+    monkeypatch.setenv("MONTYCAT_HOME", str(tmp_path))
+    monkeypatch.delenv("MONTYCAT_URI", raising=False)
+    monkeypatch.delenv("MONTYCAT_USERNAME", raising=False)
+    monkeypatch.delenv("MONTYCAT_PASSWORD", raising=False)
+
+    assert await bootstrap.ensure_engine() == "existing"
+    assert "MONTYCAT_USERNAME" not in os.environ
+    assert "MONTYCAT_PASSWORD" not in os.environ
+    assert not (tmp_path / "memocat.json").exists()
+
+
+@pytest.mark.asyncio
 async def test_autostart_off_refuses_with_instructions(monkeypatch):
     monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: False)
     monkeypatch.setenv("MEMOCAT_AUTOSTART", "off")
@@ -428,6 +525,10 @@ async def test_native_start_sets_loader_path_and_launches(monkeypatch, tmp_path)
     monkeypatch.setattr(bootstrap, "find_installed_binary", lambda: binary)
     monkeypatch.setattr(bootstrap, "wait_until_ready", ready)
     monkeypatch.setattr(bootstrap.subprocess, "Popen", fake_popen)
+    # No CLI beside this fixture binary — the runnability check has nothing to
+    # ask, which must not stop the launch. Pinned so the search cannot reach a
+    # `montycat` that happens to be installed on the machine running the tests.
+    monkeypatch.setattr(bootstrap, "find_installed_cli", lambda *_a: None)
 
     assert await bootstrap.start_native("127.0.0.1", 21210) is True
     assert captured["args"] == [str(binary)]
@@ -483,3 +584,237 @@ async def test_wait_until_ready_is_bounded(monkeypatch):
     ready = await bootstrap.wait_until_ready("127.0.0.1", 59997, deadline_sec=1)
     assert ready is False
     assert loop.time() - start < 5
+
+
+# ── acquiring an engine is never a silent side effect ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ensure_engine_never_installs_anything(monkeypatch):
+    """Installing opens the OS installer behind an administrator prompt, or runs
+    `sudo apt install`. Neither may happen just because a chat client started."""
+    monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: False)
+    monkeypatch.setattr(bootstrap, "find_installed_binary", lambda: None)
+
+    async def _forbidden(*_a, **_k):
+        pytest.fail("ensure_engine must never install an engine")
+
+    async def _no_docker(*_a, **_k):
+        return False
+
+    monkeypatch.setattr(bootstrap, "install_desktop_package", _forbidden)
+    monkeypatch.setattr(bootstrap, "install_linux_apt", _forbidden)
+    monkeypatch.setattr(bootstrap, "start_docker", _no_docker)
+
+    with pytest.raises(bootstrap.BootstrapError):
+        await bootstrap.ensure_engine()
+
+
+@pytest.mark.asyncio
+async def test_start_native_declines_when_nothing_is_installed(monkeypatch):
+    monkeypatch.setattr(bootstrap, "find_installed_binary", lambda: None)
+    assert await bootstrap.start_native("127.0.0.1", 21210) is False
+
+
+@pytest.mark.asyncio
+async def test_install_engine_installs_then_starts(monkeypatch):
+    calls = []
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: False)
+    monkeypatch.setattr(bootstrap, "find_installed_binary", lambda: None)
+
+    async def _install():
+        calls.append("install")
+        return True
+
+    async def _start(*_a, **_k):
+        calls.append("start")
+        return True
+
+    monkeypatch.setattr(bootstrap, "install_desktop_package", _install)
+    monkeypatch.setattr(bootstrap, "start_native", _start)
+
+    message = await bootstrap.install_engine()
+    assert calls == ["install", "start"]
+    assert "running" in message
+
+
+@pytest.mark.asyncio
+async def test_install_engine_refuses_when_an_engine_is_configured_elsewhere(
+    monkeypatch,
+):
+    """Installing locally would create a second database and write memories
+    where the user is not looking."""
+    monkeypatch.setenv("MONTYCAT_URI", "montycat://u:p@10.0.0.5:21210/store")
+
+    async def _forbidden(*_a, **_k):
+        pytest.fail("must not install while pointed at another engine")
+
+    monkeypatch.setattr(bootstrap, "install_desktop_package", _forbidden)
+
+    with pytest.raises(bootstrap.BootstrapError, match="MONTYCAT_URI is set"):
+        await bootstrap.install_engine()
+
+
+@pytest.mark.asyncio
+async def test_install_engine_refuses_for_a_remote_host(monkeypatch):
+    monkeypatch.setenv("MONTYCAT_HOST", "10.0.0.5")
+
+    async def _forbidden(*_a, **_k):
+        pytest.fail("must not install for an engine on another machine")
+
+    monkeypatch.setattr(bootstrap, "install_desktop_package", _forbidden)
+
+    with pytest.raises(bootstrap.BootstrapError, match="not on this machine"):
+        await bootstrap.install_engine()
+
+
+# ── the engine may be remote; only a local one can be started here ───────────
+
+
+@pytest.mark.parametrize(
+    "host,local",
+    [
+        ("127.0.0.1", True), ("localhost", True), ("::1", True), ("[::1]", True),
+        ("10.0.0.5", False), ("db.example.com", False), ("192.168.1.20", False),
+    ],
+)
+def test_is_local_identifies_startable_targets(host, local):
+    assert bootstrap._is_local(host) is local
+
+
+@pytest.mark.asyncio
+async def test_remote_host_fails_fast_without_starting_a_local_engine(monkeypatch):
+    """Tiers 2 and 3 bind locally. Left unchecked they start an engine nobody is
+    watching, wait out the readiness budget twice against an address that cannot
+    answer, and leave a stray container behind."""
+    monkeypatch.setenv("MONTYCAT_HOST", "10.0.0.5")
+    monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: False)
+
+    async def _forbidden(*_a, **_k):
+        pytest.fail("must not start a local engine for a remote address")
+
+    monkeypatch.setattr(bootstrap, "start_native", _forbidden)
+    monkeypatch.setattr(bootstrap, "start_docker", _forbidden)
+
+    with pytest.raises(bootstrap.BootstrapError, match="not on this machine"):
+        await bootstrap.ensure_engine()
+
+
+@pytest.mark.asyncio
+async def test_a_reachable_remote_engine_is_simply_used(monkeypatch):
+    monkeypatch.setenv("MONTYCAT_HOST", "10.0.0.5")
+    monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: True)
+    monkeypatch.setattr(bootstrap, "_publish_existing_credentials", lambda *a: None)
+
+    assert await bootstrap.ensure_engine() == "existing"
+
+
+def test_remote_probe_gets_a_wider_connect_budget():
+    assert bootstrap._probe_timeout("10.0.0.5") > bootstrap._probe_timeout("127.0.0.1")
+
+
+# ── the CLI answers whether a local install actually works ───────────────────
+
+
+def _fake_cli(monkeypatch, *, stderr="", stdout="", returncode=0, raises=None):
+    def fake_run(args, **kwargs):
+        if raises is not None:
+            raise raises
+        class Completed:
+            pass
+        completed = Completed()
+        completed.returncode = returncode
+        completed.stdout = stdout
+        completed.stderr = stderr
+        return completed
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
+
+
+@pytest.mark.parametrize(
+    ("stderr", "edition", "version"),
+    [
+        ("Status: true\nMontycat Semantic 1.3.1\n", "semantic", "1.3.1"),
+        ("Montycat 1.3.1\n", "base", "1.3.1"),
+        ("Status: true\nMontycat Semantic 2.0.0-rc1\n", "semantic", "2.0.0-rc1"),
+    ],
+)
+def test_cli_reports_edition_and_version(monkeypatch, tmp_path, stderr, edition, version):
+    """`montycat version` prints a compile-time constant to stderr, so it
+    answers even when the engine is down — exactly when we need to know."""
+    cli = tmp_path / "montycat"
+    cli.write_text("")
+    _fake_cli(monkeypatch, stderr=stderr)
+
+    probe = bootstrap.probe_cli(cli)
+    assert probe.ran is True
+    assert (probe.edition, probe.version) == (edition, version)
+    assert bootstrap.engine_build(cli) == (edition, version)
+
+
+def test_unrecognised_output_still_counts_as_a_working_install(monkeypatch, tmp_path):
+    """Whether the process ran is a fact about the installation; whether we
+    parsed it is a fact about this parser. A reworded version line must not
+    condemn a perfectly good engine."""
+    cli = tmp_path / "montycat"
+    cli.write_text("")
+    _fake_cli(monkeypatch, stderr="montycat, version 9 (build 42)\n")
+
+    probe = bootstrap.probe_cli(cli)
+    assert probe.ran is True
+    assert probe.version is None
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"raises": OSError("Exec format error")},          # wrong architecture
+        {"raises": bootstrap.subprocess.TimeoutExpired("montycat", 10)},
+        {"returncode": 1, "stderr": "dyld: Library not loaded\n"},
+    ],
+)
+def test_a_cli_that_cannot_run_is_reported_as_such(monkeypatch, tmp_path, failure):
+    cli = tmp_path / "montycat"
+    cli.write_text("")
+    _fake_cli(monkeypatch, **failure)
+
+    assert bootstrap.probe_cli(cli).ran is False
+
+
+def test_missing_cli_is_unknown_not_broken(tmp_path):
+    assert bootstrap.probe_cli(tmp_path / "nope").ran is False
+    assert bootstrap.engine_build(tmp_path / "nope") is None
+
+
+def test_cli_is_found_beside_the_engine_binary(tmp_path, monkeypatch):
+    """Every packaging installs the pair together — pkg and Docker into
+    /usr/local/bin, the Debian package into /usr/bin."""
+    monkeypatch.delenv("MEMOCAT_ENGINE_CLI", raising=False)
+    (tmp_path / "montycat_bin").write_text("")
+    (tmp_path / "montycat").write_text("")
+
+    found = bootstrap.find_installed_cli(tmp_path / "montycat_bin")
+    assert found == tmp_path / "montycat"
+
+
+@pytest.mark.asyncio
+async def test_native_is_skipped_when_the_installed_engine_cannot_run(
+    monkeypatch, tmp_path
+):
+    """A file on disk is not proof it runs. Without this the engine is launched
+    into DEVNULL, dies, and the full readiness budget is spent finding out."""
+    binary = tmp_path / "montycat_bin"
+    binary.write_text("")
+    (tmp_path / "montycat").write_text("")
+    monkeypatch.setattr(bootstrap, "find_installed_binary", lambda: binary)
+    monkeypatch.setattr(
+        bootstrap, "probe_cli", lambda *_a, **_k: bootstrap.CliProbe(ran=False)
+    )
+
+    def fake_popen(*_a, **_k):
+        pytest.fail("must not launch an engine the CLI proved cannot run")
+
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", fake_popen)
+
+    assert await bootstrap.start_native("127.0.0.1", 21210) is False

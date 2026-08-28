@@ -26,9 +26,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import os
 import platform
+import re
 import secrets
 import shutil
 import socket
@@ -42,7 +44,7 @@ import urllib.request
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 from urllib.parse import urlparse
 
 DEFAULT_HOST = "127.0.0.1"
@@ -64,6 +66,26 @@ _APT_SEMANTIC_INSTALL = (
 logger = __import__("logging").getLogger("memocat.bootstrap")
 
 
+def _user_agent() -> str:
+    from . import __version__
+
+    return f"memocat-mcp/{__version__} (+https://github.com/MontyGovernance/memocat-mcp)"
+
+
+def _urlopen(url: str, timeout: float):
+    """Open a URL with an identifying User-Agent.
+
+    The release catalog and download host sit behind a WAF that answers 403 to
+    urllib's default `Python-urllib/x.y` agent. Every other agent — including an
+    empty one — is served normally, so the block is on that string specifically.
+    Left unset, installer discovery and every artifact download fail closed,
+    `start_native` silently returns False, and a machine without Docker cannot
+    bootstrap an engine at all.
+    """
+    request = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
+    return urllib.request.urlopen(request, timeout=timeout)  # noqa: S310
+
+
 class BootstrapError(RuntimeError):
     """No engine could be reached or started."""
 
@@ -76,7 +98,9 @@ def _home() -> Path:
 
 def _mode() -> str:
     """`auto` | `off` | `native` | `docker`."""
-    return os.environ.get("MEMOCAT_AUTOSTART", "auto").strip().lower()
+    # A cleared MCPB settings field arrives as an empty string, so fall back
+    # after stripping rather than relying on `get`'s absent-variable default.
+    return os.environ.get("MEMOCAT_AUTOSTART", "").strip().lower() or "auto"
 
 
 def _timeout() -> int:
@@ -108,6 +132,38 @@ def _host_port() -> tuple[str, int]:
         os.environ.get("MONTYCAT_HOST", DEFAULT_HOST),
         int(os.environ.get("MONTYCAT_PORT", str(DEFAULT_PORT))),
     )
+
+
+def _is_local(host: str) -> bool:
+    """Whether an engine at ``host`` would be one this machine can start.
+
+    The engine is often remote over TCP. Tiers 2 and 3 only ever bind locally,
+    so for any other address they would start an engine nobody is watching and
+    then wait out the full readiness budget against an address that cannot
+    answer.
+    """
+    candidate = host.strip().strip("[]").lower()
+    if candidate in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "::"):
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
+
+
+def _probe_timeout(host: str) -> float:
+    """Connect budget for the first probe.
+
+    A loopback engine answers immediately or not at all; a remote one crosses a
+    network, where 1.5s is tight.
+    """
+    override = os.environ.get("MEMOCAT_PROBE_TIMEOUT")
+    if override:
+        try:
+            return max(0.1, float(override))
+        except ValueError:
+            pass
+    return 1.5 if _is_local(host) else 5.0
 
 
 # ── tier 1: is something already there? ──────────────────────────────────────
@@ -166,6 +222,30 @@ def credentials() -> tuple[str, str, str]:
     path.write_text(json.dumps(creds, indent=2))
     path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600 — it is a password on disk
     return creds["username"], creds["password"], creds["store"]
+
+
+def _publish_existing_credentials(host: str, port: int) -> None:
+    """Restore credentials for a local engine managed on an earlier launch.
+
+    Merely probing a port cannot identify an arbitrary user's engine, so never
+    generate credentials in this path. Publish only explicit environment
+    credentials or a credential file that MemoCat already created.
+    """
+    env_user = os.environ.get("MONTYCAT_USERNAME")
+    env_pass = os.environ.get("MONTYCAT_PASSWORD")
+    if env_user and env_pass:
+        _publish(host, port, env_user, env_pass, os.environ.get("MONTYCAT_STORE", DEFAULT_STORE))
+        return
+
+    path = _home() / "memocat.json"
+    if not path.exists():
+        return
+    try:
+        saved = json.loads(path.read_text())
+        _publish(host, port, saved["username"], saved["password"],
+                 saved.get("store", os.environ.get("MONTYCAT_STORE", DEFAULT_STORE)))
+    except (ValueError, KeyError, OSError):
+        return
 
 
 def _publish(host: str, port: int, user: str, password: str, store: str) -> None:
@@ -247,7 +327,7 @@ def _discover_latest_installer_url() -> Optional[str]:
         return None
     base = os.environ.get("MEMOCAT_RELEASES_URL", RELEASE_CATALOG_BASE).rstrip("/")
     try:
-        with urllib.request.urlopen(f"{base}/v1/releases/{catalog_platform}", timeout=15) as response:  # noqa: S310
+        with _urlopen(f"{base}/v1/releases/{catalog_platform}", timeout=15) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError):
         return None
@@ -278,7 +358,7 @@ def _fetch(url: str, dest: Path) -> None:
         source = url[len("file://"):] if url.startswith("file://") else url
         shutil.copyfile(source, dest)
         return
-    with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310 - fixed host
+    with _urlopen(url, timeout=60) as response:
         with dest.open("wb") as out:
             shutil.copyfileobj(response, out)
 
@@ -351,6 +431,96 @@ def find_installed_binary() -> Optional[Path]:
             if root:
                 candidates.append(Path(root) / "Montycat" / "montycat_bin.exe")
     return next((path for path in candidates if path.is_file()), None)
+
+
+def find_installed_cli(binary: Optional[Path] = None) -> Optional[Path]:
+    """Locate the `montycat` CLI that ships beside the engine.
+
+    Every packaging path installs the two together — the macOS pkg and the
+    Docker image into `/usr/local/bin`, the Debian package into `/usr/bin` —
+    so look next to a known engine binary first and fall back to PATH.
+    """
+    explicit = os.environ.get("MEMOCAT_ENGINE_CLI")
+    if explicit:
+        path = Path(explicit)
+        return path if path.is_file() else None
+    names = ("montycat.exe",) if os.name == "nt" else ("montycat",)
+    if binary is not None:
+        for name in names:
+            beside = binary.parent / name
+            if beside.is_file():
+                return beside
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return Path(found)
+    return None
+
+
+class CliProbe(NamedTuple):
+    """What `montycat version` told us.
+
+    `ran` and the version are deliberately separate. Whether the process
+    executed is a fact about the installation; whether we recognised its output
+    is a fact about this parser. A future CLI that reworded its version line
+    still proves the binary runs, and must not be mistaken for a bad install.
+    """
+
+    ran: bool
+    edition: Optional[str] = None
+    version: Optional[str] = None
+
+
+def probe_cli(cli: Optional[Path] = None) -> CliProbe:
+    """Run `montycat version`.
+
+    The CLI prints a compile-time constant, so this needs no running engine —
+    which is the whole point: it answers exactly when the engine is *down* and
+    we are deciding whether a local install is usable. Semantic builds print
+    `Montycat Semantic <version>`, the lean edition `Montycat <version>`, and
+    both go to stderr with stdout left empty.
+    """
+    cli = cli or find_installed_cli()
+    if cli is None:
+        return CliProbe(ran=False)
+    env = {**os.environ, **_library_path(cli.parent)}
+    try:
+        completed = subprocess.run(  # noqa: S603 - our own verified binary
+            [str(cli), "version"],
+            capture_output=True, text=True, timeout=10, env=env,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        # Wrong architecture, unresolvable ONNX libraries, no execute bit, a
+        # truncated install, or a hang.
+        logger.debug("montycat CLI did not run: %s", exc)
+        return CliProbe(ran=False)
+    if completed.returncode != 0:
+        logger.debug("montycat version exited %s", completed.returncode)
+        return CliProbe(ran=False)
+
+    match = re.search(
+        r"^Montycat(?P<edition> Semantic)? (?P<version>\S+)\s*$",
+        f"{completed.stderr or ''}\n{completed.stdout or ''}",
+        re.MULTILINE,
+    )
+    if match is None:
+        # It ran, so the install is sound; we simply do not recognise this
+        # wording. Report the version as unknown rather than condemning it.
+        logger.debug("unrecognised montycat version output: %r", completed.stderr)
+        return CliProbe(ran=True)
+    return CliProbe(
+        ran=True,
+        edition="semantic" if match.group("edition") else "base",
+        version=match.group("version"),
+    )
+
+
+def engine_build(cli: Optional[Path] = None) -> Optional[tuple[str, str]]:
+    """`(edition, version)`, or None when that could not be determined."""
+    probe = probe_cli(cli)
+    if probe.edition is None or probe.version is None:
+        return None
+    return (probe.edition, probe.version)
 
 
 def _cache_valid(cache: Path) -> Optional[Path]:
@@ -588,18 +758,33 @@ def _expected_checksum(url: str, tmpdir: Path) -> Optional[str]:
 
 
 async def start_native(host: str, port: int) -> bool:
+    """Launch an engine that is *already* installed.
+
+    Deliberately never installs. Acquiring the engine opens an OS installer and
+    asks for administrator consent (or, on Linux, runs `sudo apt install`), and
+    that cannot happen as an invisible side effect of a user opening a chat
+    client — see `install_engine`.
+    """
     binary = find_installed_binary()
     if binary is None:
-        system = platform.system().lower()
-        installed = (
-            await install_desktop_package() if system in ("darwin", "windows")
-            else await install_linux_apt() if system == "linux" else False
-        )
-        if not installed:
-            return False
-        binary = find_installed_binary()
-    if binary is None:
         return False
+
+    # A file on disk is not proof it runs — wrong architecture, or the ONNX
+    # libraries `_library_path` exists to locate never resolve. The CLI ships
+    # beside the engine in every packaging, so when it is present but cannot
+    # answer, the engine next to it will not start either. Say so now instead
+    # of launching into a DEVNULL and waiting out the whole readiness budget.
+    cli = find_installed_cli(binary)
+    if cli is not None:
+        probe = probe_cli(cli)
+        if not probe.ran:
+            logger.warning(
+                "montycat is installed at %s but does not run; skipping the "
+                "native engine", binary.parent,
+            )
+            return False
+        if probe.version:
+            logger.info("found Montycat %s (%s edition)", probe.version, probe.edition)
 
     user, password, store = credentials()
     env = {
@@ -715,9 +900,23 @@ _INSTALL_HELP = (
     "  • install it natively — Linux: configure the Montycat APT repository and "
     "install `montycat`; macOS/Windows: use the package from "
     "https://montygovernance.com/download\n"
+    "  • or ask me to run `memocat_install_engine`, which downloads the package "
+    "and opens your operating system's installer. It will ask for your "
+    "administrator password.\n"
     "Then point MemoCat at it with MONTYCAT_URI, or set MEMOCAT_AUTOSTART=off "
     "to skip this check."
 )
+
+
+def _remote_engine_help(host: str, port: int) -> str:
+    return (
+        f"No Montycat engine is answering at {host}:{port}.\n"
+        "That address is not on this machine, so MemoCat will not start an "
+        "engine for it — doing so would create a second, local database and "
+        "write memories somewhere you are not looking.\n"
+        "Start the engine on that host, correct MONTYCAT_URI / MONTYCAT_HOST, "
+        "or unset them to let MemoCat manage a local engine."
+    )
 
 
 async def ensure_engine() -> str:
@@ -729,12 +928,19 @@ async def ensure_engine() -> str:
     host, port = _host_port()
     mode = _mode()
 
-    if await asyncio.to_thread(probe, host, port):
+    if await asyncio.to_thread(probe, host, port, _probe_timeout(host)):
+        if not os.environ.get("MONTYCAT_URI"):
+            _publish_existing_credentials(host, port)
         return "existing"
 
     if mode == "off":
+        # _INSTALL_HELP closes by offering MEMOCAT_AUTOSTART=off, which is the
+        # setting that produced this branch. Say what actually helps here.
         raise BootstrapError(
-            f"No engine at {host}:{port} and MEMOCAT_AUTOSTART=off.\n{_INSTALL_HELP}"
+            f"No engine at {host}:{port} and MEMOCAT_AUTOSTART=off.\n"
+            f"{_INSTALL_HELP.rsplit('Then point MemoCat at it', 1)[0]}"
+            "Then point MemoCat at it with MONTYCAT_URI, or set "
+            "MEMOCAT_AUTOSTART=auto to let MemoCat start one."
         )
 
     # An explicit MONTYCAT_URI is a promise that an engine lives there. Starting
@@ -746,9 +952,86 @@ async def ensure_engine() -> str:
             "Start that engine, or unset MONTYCAT_URI to let MemoCat manage one."
         )
 
+    # Same reasoning without a URI: MONTYCAT_HOST can name another machine, and
+    # tiers 2 and 3 only ever bind locally. Left unchecked they would start an
+    # engine nobody is watching, then wait out the full readiness budget against
+    # an address that cannot answer — twice, leaving a stray container behind.
+    if not _is_local(host):
+        raise BootstrapError(_remote_engine_help(host, port))
+
     if mode in ("auto", "native") and await start_native(host, port):
         return "native"
     if mode in ("auto", "docker") and await start_docker(host, port):
         return "docker"
 
     raise BootstrapError(_INSTALL_HELP)
+
+
+async def install_engine() -> str:
+    """Acquire a native engine, with the user's knowledge, then start it.
+
+    Kept out of `ensure_engine` on purpose. This opens the operating system's
+    installer — which asks for an administrator password — or on Linux runs the
+    documented `sudo apt install`. Neither belongs in the invisible startup path
+    of a chat client; both are fine when the user has just asked for them.
+
+    Returns a sentence describing what happened, for the calling tool to relay.
+    """
+    host, port = _host_port()
+
+    if os.environ.get("MONTYCAT_URI"):
+        raise BootstrapError(
+            "MONTYCAT_URI is set, so MemoCat is configured to use the engine at "
+            f"{host}:{port}. Installing a local engine would create a second "
+            "database and write memories somewhere you are not looking.\n"
+            "Unset MONTYCAT_URI first if you want MemoCat to manage its own "
+            "engine, or start the configured one."
+        )
+    if not _is_local(host):
+        raise BootstrapError(_remote_engine_help(host, port))
+
+    if await asyncio.to_thread(probe, host, port, _probe_timeout(host)):
+        _publish_existing_credentials(host, port)
+        build = await asyncio.to_thread(engine_build)
+        running = f"Montycat {build[1]} ({build[0]} edition)" if build else "An engine"
+        return f"{running} is already running at {host}:{port}; nothing to install."
+
+    if find_installed_binary() is None:
+        system = platform.system().lower()
+        if system in ("darwin", "windows"):
+            installed = await install_desktop_package()
+        elif system == "linux":
+            installed = await install_linux_apt()
+        else:
+            raise BootstrapError(
+                f"No Montycat installer is published for {system}. "
+                f"Use Docker instead:\n{_INSTALL_HELP}"
+            )
+        if not installed:
+            raise BootstrapError(
+                "The Montycat installer did not complete. If the installer "
+                "window is still open, finish it and ask me again.\n"
+                f"{_INSTALL_HELP}"
+            )
+
+    if not await start_native(host, port):
+        raise BootstrapError(
+            "Montycat installed but the engine did not become reachable at "
+            f"{host}:{port}. Check that nothing else is using that port.\n"
+            f"{_INSTALL_HELP}"
+        )
+
+    build = await asyncio.to_thread(engine_build)
+    if build is None:
+        return f"Montycat engine installed and running at {host}:{port}."
+    edition, version = build
+    detail = f"Montycat {version} ({edition} edition) is running at {host}:{port}."
+    if edition != "semantic":
+        # Every semantic tool needs the Semantic edition. Better one clear
+        # sentence now than a confusing failure per tool later.
+        detail += (
+            " Semantic search, vector RAG, and embedding tools need the "
+            "Semantic edition — reinstall it from "
+            "https://montygovernance.com/download to use them."
+        )
+    return detail

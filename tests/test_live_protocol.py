@@ -38,7 +38,9 @@ async def mcp_session():
 
     params = StdioServerParameters(
         command=sys.executable,
-        args=["-c", "from memocat_mcp.server import main; main()"],
+        # Exercise the exact script named by manifest.json, not merely the
+        # underlying import that the normal console entry point also uses.
+        args=["mcpb_entry.py"],
         env=env,
         cwd=REPO_ROOT,
     )

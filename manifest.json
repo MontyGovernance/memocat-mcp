@@ -1,0 +1,116 @@
+{
+  "manifest_version": "0.4",
+  "name": "io.github.montygovernance.memocat",
+  "display_name": "MemoCat",
+  "version": "0.4.3",
+  "description": "Private, self-hosted long-term memory, semantic search, vector RAG, live updates, and governance for Claude Desktop.",
+  "long_description": "MemoCat gives Claude persistent memory backed by a locally managed or user-configured Montycat engine. Store, update, delete, browse, and semantically search memories while keeping the database and embeddings under your control.",
+  "author": {
+    "name": "Monty Governance",
+    "url": "https://montygovernance.com"
+  },
+  "homepage": "https://montygovernance.com/ai-memory",
+  "documentation": "https://github.com/MontyGovernance/memocat-mcp#readme",
+  "support": "https://github.com/MontyGovernance/memocat-mcp/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MontyGovernance/memocat-mcp"
+  },
+  "license": "MIT",
+  "privacy_policies": [
+    "https://github.com/MontyGovernance/memocat-mcp/blob/master/PRIVACY.md"
+  ],
+  "icon": "assets/icon.png",
+  "keywords": [
+    "memory",
+    "agent memory",
+    "semantic search",
+    "vector search",
+    "RAG",
+    "self-hosted",
+    "local",
+    "governance"
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32"],
+    "runtimes": {
+      "python": ">=3.10.0 <4"
+    }
+  },
+  "server": {
+    "type": "uv",
+    "entry_point": "mcpb_entry.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "mcpb_entry.py"
+      ],
+      "env": {
+        "MONTYCAT_URI": "${user_config.montycat_uri}",
+        "MONTYCAT_TLS": "${user_config.montycat_tls}",
+        "MONTYCAT_DEFAULT_KEYSPACE": "${user_config.default_keyspace}",
+        "MEMOCAT_AUTOSTART": "${user_config.autostart}"
+      }
+    }
+  },
+  "user_config": {
+    "montycat_uri": {
+      "type": "string",
+      "title": "Existing Montycat URI (optional)",
+      "description": "Leave blank to let MemoCat find or start a local engine. For an existing engine use montycat://user:password@host:port/store.",
+      "required": false,
+      "default": "",
+      "sensitive": true
+    },
+    "montycat_tls": {
+      "type": "boolean",
+      "title": "Use TLS for existing engine",
+      "description": "Enable only when the configured Montycat engine presents a trusted TLS certificate.",
+      "required": false,
+      "default": false
+    },
+    "default_keyspace": {
+      "type": "string",
+      "title": "Default memory keyspace",
+      "description": "Memory namespace used when Claude does not select a scope or keyspace.",
+      "required": true,
+      "default": "memory"
+    },
+    "autostart": {
+      "type": "string",
+      "title": "Local engine startup mode",
+      "description": "Use auto for native/Docker setup, or off to require an engine that is already running.",
+      "required": true,
+      "default": "auto"
+    }
+  },
+  "tools": [
+    {"name": "memocat_semantic_search", "description": "Search memories by semantic similarity."},
+    {"name": "memocat_remember", "description": "Store one persistent memory."},
+    {"name": "memocat_remember_bulk", "description": "Store multiple memories."},
+    {"name": "memocat_recall", "description": "Recall memories by key or field filter."},
+    {"name": "memocat_list_memories", "description": "Browse stored memories."},
+    {"name": "memocat_update", "description": "Update an existing memory."},
+    {"name": "memocat_forget", "description": "Permanently delete one memory."},
+    {"name": "memocat_await_memory_change", "description": "Wait for a live memory change notification."},
+    {"name": "memocat_install_engine", "description": "Install the Montycat engine on this computer and start it."},
+    {"name": "memocat_list_keyspaces", "description": "List visible memory keyspaces."},
+    {"name": "memocat_create_keyspace", "description": "Create a memory keyspace."},
+    {"name": "memocat_remove_keyspace", "description": "Permanently delete a memory keyspace."},
+    {"name": "memocat_enable_semantic", "description": "Enable semantic search for a keyspace."},
+    {"name": "memocat_enable_external_vectors", "description": "Configure caller-supplied vectors for a keyspace."},
+    {"name": "memocat_semantic_status", "description": "Inspect semantic search configuration and backfill status."},
+    {"name": "memocat_reembed_semantic", "description": "Clear and rebuild a keyspace's semantic vectors."},
+    {"name": "memocat_disable_semantic", "description": "Disable semantic search and optionally delete vectors."},
+    {"name": "memocat_start_snapshots", "description": "Start scheduled snapshots for an in-memory keyspace."},
+    {"name": "memocat_stop_snapshots", "description": "Stop scheduled snapshots for an in-memory keyspace."},
+    {"name": "memocat_clean_snapshots", "description": "Delete snapshot files for an in-memory keyspace."},
+    {"name": "memocat_policy_view", "description": "View the configured owner's effective governance policy."},
+    {"name": "memocat_policy_history", "description": "View governance history visible to the configured owner."},
+    {"name": "memocat_policy_explain", "description": "Explain whether a governed action would be allowed."}
+  ]
+}

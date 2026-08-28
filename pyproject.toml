@@ -1,6 +1,6 @@
 [project]
 name = "memocat-mcp"
-version = "0.4.2"
+version = "0.4.3"
 description = "MCP server for self-hosted AI agent memory, semantic search, vector RAG, and Montycat."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -90,6 +90,9 @@ include = [
     "/Dockerfile",
     "/compose.yaml",
     "/server.json",
+    "/manifest.json",
+    "/mcpb_entry.py",
+    "/PRIVACY.md",
 ]
 
 [project.optional-dependencies]

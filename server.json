@@ -7,12 +7,35 @@
     "url": "https://github.com/MontyGovernance/memocat-mcp",
     "source": "github"
   },
-  "version": "0.4.2",
+  "version": "0.4.3",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "memocat-mcp",
-      "version": "0.4.2",
+      "version": "0.4.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MONTYCAT_URI",
+          "description": "Optional Montycat engine URI: montycat://user:password@host:port/store",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MONTYCAT_TLS",
+          "description": "Set to true when connecting to a TLS-enabled remote Montycat engine",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/montygovernance/memocat-mcp:0.4.3",
       "transport": {
         "type": "stdio"
       },
