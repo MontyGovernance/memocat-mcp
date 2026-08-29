@@ -1,7 +1,7 @@
 [project]
 name = "memocat-mcp"
 version = "0.4.3"
-description = "MCP server for self-hosted AI agent memory, semantic search, vector RAG, and Montycat."
+description = "Shared, persistent memory across AI agents and systems through MCP."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -20,6 +20,11 @@ keywords = [
     "retrieval-augmented-generation",
     "ai-memory",
     "agent-memory",
+    "shared-memory",
+    "persistent-memory",
+    "multi-agent-memory",
+    "cross-session-memory",
+    "agent-collaboration",
     "long-term-memory",
     "memory-server",
     "ai-agents",
@@ -31,7 +36,8 @@ keywords = [
     "claude",
     "claude-desktop",
     "cursor",
-    "chatgpt",
+    "openai",
+    "codex",
     "data-governance",
 ]
 classifiers = [

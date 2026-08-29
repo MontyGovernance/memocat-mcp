@@ -1,10 +1,10 @@
 {
   "manifest_version": "0.4",
   "name": "io.github.montygovernance.memocat",
-  "display_name": "MemoCat",
+  "display_name": "MemoCat — Shared AI Memory",
   "version": "0.4.3",
-  "description": "Private, self-hosted long-term memory, semantic search, vector RAG, live updates, and governance for Claude Desktop.",
-  "long_description": "MemoCat gives Claude persistent memory backed by a locally managed or user-configured Montycat engine. Store, update, delete, browse, and semantically search memories while keeping the database and embeddings under your control.",
+  "description": "One shared, persistent memory across AI agents and systems—local-first, live, and searchable by meaning.",
+  "long_description": "MemoCat gives Claude Desktop and other MCP-compatible AI systems one durable memory across conversations. Agents connected to the same Montycat engine can remember preferences, decisions, facts, and structured knowledge; recall relevant context by meaning; and react to each other's updates in real time. Run it locally by default or connect it to a trusted shared engine, with the database and embeddings under your control.",
   "author": {
     "name": "Monty Governance",
     "url": "https://montygovernance.com"
@@ -22,13 +22,22 @@
   ],
   "icon": "assets/icon.png",
   "keywords": [
-    "memory",
-    "agent memory",
+    "shared memory",
+    "persistent memory",
+    "AI memory",
+    "AI agent memory",
+    "multi-agent memory",
+    "cross-session memory",
+    "MCP memory",
+    "agent collaboration",
+    "shared context",
+    "Claude memory",
+    "OpenAI Codex",
+    "Cursor",
     "semantic search",
-    "vector search",
-    "RAG",
+    "semantic memory",
     "self-hosted",
-    "local",
+    "local AI",
     "governance"
   ],
   "compatibility": {
@@ -76,7 +85,7 @@
     "default_keyspace": {
       "type": "string",
       "title": "Default memory keyspace",
-      "description": "Memory namespace used when Claude does not select a scope or keyspace.",
+      "description": "Memory namespace used when an agent does not select a scope or keyspace.",
       "required": true,
       "default": "memory"
     },
@@ -89,14 +98,14 @@
     }
   },
   "tools": [
-    {"name": "memocat_semantic_search", "description": "Search memories by semantic similarity."},
-    {"name": "memocat_remember", "description": "Store one persistent memory."},
-    {"name": "memocat_remember_bulk", "description": "Store multiple memories."},
-    {"name": "memocat_recall", "description": "Recall memories by key or field filter."},
-    {"name": "memocat_list_memories", "description": "Browse stored memories."},
-    {"name": "memocat_update", "description": "Update an existing memory."},
+    {"name": "memocat_semantic_search", "description": "Recall relevant knowledge from shared memory by meaning."},
+    {"name": "memocat_remember", "description": "Add a fact or decision to persistent memory for this agent or others."},
+    {"name": "memocat_remember_bulk", "description": "Add multiple records to persistent shared memory."},
+    {"name": "memocat_recall", "description": "Recall shared knowledge by exact key or field filter."},
+    {"name": "memocat_list_memories", "description": "Browse what agents have stored in memory."},
+    {"name": "memocat_update", "description": "Revise an existing shared memory."},
     {"name": "memocat_forget", "description": "Permanently delete one memory."},
-    {"name": "memocat_await_memory_change", "description": "Wait for a live memory change notification."},
+    {"name": "memocat_await_memory_change", "description": "Wait for another agent or session to change shared memory."},
     {"name": "memocat_install_engine", "description": "Install the Montycat engine on this computer and start it."},
     {"name": "memocat_list_keyspaces", "description": "List visible memory keyspaces."},
     {"name": "memocat_create_keyspace", "description": "Create a memory keyspace."},

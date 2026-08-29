@@ -25,6 +25,9 @@ All notable changes to MemoCat MCP are documented here.
 
 ### Changed
 
+- Position MemoCat consistently as vendor-neutral shared AI memory across
+  Claude, OpenAI Codex, Cursor, and other MCP-compatible systems; the MCPB is
+  the Claude Desktop installation surface, not the boundary of the product.
 - Serve MCP immediately and acquire the engine in the background. Startup
   previously awaited engine readiness before opening the transport, so a first
   run that had to install or pull an engine could take minutes — far longer

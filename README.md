@@ -1,4 +1,4 @@
-# MemoCat MCP Server — Self-Hosted AI Agent Memory and Vector RAG
+# MemoCat — Shared Memory for AI Agents and Systems
 
 <!-- mcp-name: io.github.MontyGovernance/memocat-mcp -->
 
@@ -6,41 +6,42 @@
 [![Python](https://img.shields.io/pypi/pyversions/memocat-mcp.svg)](https://pypi.org/project/memocat-mcp/)
 [![License](https://img.shields.io/github/license/MontyGovernance/memocat-mcp.svg)](https://github.com/MontyGovernance/memocat-mcp/blob/master/LICENSE)
 
-**MemoCat is a self-hosted MCP memory server for Claude Desktop, Cursor,
-ChatGPT integrations, and autonomous AI agents.** It gives MCP clients private,
-persistent, semantically searchable long-term memory. `memocat-mcp` is a
-[Model Context Protocol](https://modelcontextprotocol.io) server for
-[Montycat](https://montygovernance.com), an **all-in-one, self-hosted data and
-memory engine for AI agents**.
+**MemoCat gives Claude, OpenAI/Codex, Cursor, and other MCP-compatible AI
+systems one shared, persistent memory.** Agents connected to the same memory
+can carry knowledge across conversations, hand context to one another, and
+react to what another agent learns in real time.
 
-Montycat combines the database, vector search, on-device embeddings, persistent
-and in-memory storage, real-time subscriptions, and data governance in one
-engine. MemoCat exposes those capabilities through MCP, so an agent does not
-need a separate vector database, embedding API, event broker, or governance
-service to build persistent memory and retrieval-augmented generation (RAG).
+MemoCat is not tied to one model, app, or agent framework. It is a
+[Model Context Protocol](https://modelcontextprotocol.io) memory layer backed
+by [Montycat](https://montygovernance.com). Run it locally for private memory
+across sessions and local clients, or connect multiple machines and systems to
+the same trusted Montycat engine for shared memory across agents.
 
 Memories are embedded on-device and recalled by meaning, metadata, timestamp,
-or exact key. No cloud vector database, external embedding API, or per-query
-bill.
+or exact key. Montycat keeps the database, vector search, embeddings,
+persistent and in-memory storage, live subscriptions, and governance together,
+so agents do not need separate vector, embedding, messaging, and policy
+services. No cloud embedding API or per-query bill.
 
 ## Features
 
-- Self-hosted long-term memory for MCP-compatible AI agents.
+- One persistent memory across conversations, agents, and MCP-compatible systems.
+- Shared scopes let multiple agents work from the same facts and project context.
 - Semantic vector search with metadata and time-range filtering for RAG.
 - Persistent memory, in-memory working spaces, bulk writes, updates, and deletion.
 - Real-time memory-change subscriptions without database polling.
-- Multi-agent scopes, shared memory, delegated-owner governance, and policy explanations.
+- Private scopes, delegated-owner governance, and policy explanations.
 - Keyspace lifecycle, semantic-model controls, snapshots, and revocation-safe watch buffers.
 - One-command `uvx memocat-mcp` entry point with native/Docker engine bootstrap.
 
 ## Why
 
-LLM agents forget context between runs. MemoCat stores each fact in Montycat,
-embeds and indexes it automatically, and retrieves relevant memories through 23
-agent-readable MCP tools. It is both a retrieval layer for RAG and a durable
-memory layer for autonomous agents. Unlike a collection of separate database,
-vector, embedding, messaging, and policy services, Montycat provides the full
-memory stack as one all-in-one engine that can run under your control.
+AI systems forget between conversations, and separate agents cannot naturally
+share what they learn. MemoCat gives them a common memory: one agent can store a
+decision, another can recall it by meaning, and a third can receive its update
+live. Its 23 MCP tools also support exact retrieval, lifecycle management, and
+governed deployments, but the core product is the shared memory layer—not a
+model-specific plugin or another standalone vector database.
 
 ## Install MemoCat MCP
 
@@ -297,7 +298,15 @@ is AMD64-only. Set `MEMOCAT_AUTOSTART=off` to disable all start attempts, and
 `MEMOCAT_READY_TIMEOUT` (default 20s) to change how long a tool waits for a
 starting engine before reporting progress.
 
-## Connect Claude Desktop
+## Connect multiple AI systems to one memory
+
+Use the same `MONTYCAT_URI` in each client to give Claude Desktop, Cursor,
+OpenAI Codex, and other MCP-compatible systems access to the same memory. A
+default local engine shares memory across sessions and local clients on one
+machine; cross-machine sharing requires a trusted network-reachable Montycat
+engine.
+
+### Claude Desktop
 
 Add MemoCat to `claude_desktop_config.json`, then restart Claude Desktop:
 
@@ -315,7 +324,7 @@ Add MemoCat to `claude_desktop_config.json`, then restart Claude Desktop:
 }
 ```
 
-## Connect Cursor
+### Cursor
 
 Add the same server definition to your Cursor MCP configuration:
 
@@ -333,7 +342,7 @@ Add the same server definition to your Cursor MCP configuration:
 }
 ```
 
-## Connect OpenAI Codex
+### OpenAI Codex
 
 Codex can register the local stdio server directly from a terminal:
 
@@ -345,7 +354,7 @@ codex mcp add memocat \
 
 Confirm the registration with `codex mcp list`, then start a new Codex session.
 
-## ChatGPT integration
+### ChatGPT integration
 
 MemoCat currently runs as a local **stdio MCP server**. It works directly with
 clients that can launch local MCP commands, including Claude Desktop, Cursor,

@@ -2,7 +2,7 @@
 
 import pytest
 
-from memocat_mcp.server import mcp
+from memocat_mcp.server import SERVER_INSTRUCTIONS, mcp
 
 
 READ_ONLY = {
@@ -65,3 +65,10 @@ async def test_all_tools_have_directory_metadata():
     for name in DESTRUCTIVE:
         assert tools[name].annotations.readOnlyHint is False
         assert tools[name].annotations.destructiveHint is True
+
+
+def test_server_explains_safe_shared_memory_behavior_to_mcp_hosts():
+    assert mcp._mcp_server.instructions == SERVER_INSTRUCTIONS
+    assert "shared, persistent memory" in SERVER_INSTRUCTIONS
+    assert "same Montycat engine" in SERVER_INSTRUCTIONS
+    assert "Do not store secrets" in SERVER_INSTRUCTIONS

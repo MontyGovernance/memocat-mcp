@@ -1,8 +1,9 @@
 """Montycat MCP server.
 
-Exposes a Montycat engine to LLM agents as MCP tools, turning it into
-self-hosted, semantically-searchable long-term memory: agents store facts and
-recall them by meaning (vector search) or by key, all on your own hardware.
+Exposes a Montycat engine as shared, persistent memory for MCP-compatible AI
+systems. Agents connected to the same engine and keyspace can store facts,
+recall them by meaning or key, and react to each other's updates while the data
+remains on user-controlled hardware.
 
 Connection is configured from the environment:
 
@@ -83,10 +84,20 @@ from montycat import (
 
 from .watch import registry as watch_registry
 
-mcp = FastMCP("memocat")
+SERVER_INSTRUCTIONS = """MemoCat is shared, persistent memory for AI agents and
+systems. Search it for relevant prior context before asking the user to repeat
+information. Remember durable preferences, facts, and decisions when the user
+asks or when they will clearly be useful in a later conversation; update stale
+facts instead of creating conflicting duplicates. Use scope='shared' only when
+the user intends other authorized agents to access the memory. Sharing requires
+clients to connect to the same Montycat engine and keyspace—separate local
+engines do not synchronize. Do not store secrets or full conversation
+transcripts by default."""
 
-# Safety metadata returned by MCP tools/list. Claude Desktop uses these hints
-# to explain and confirm read, write, and destructive operations.
+mcp = FastMCP("memocat", instructions=SERVER_INSTRUCTIONS)
+
+# Safety metadata returned by MCP tools/list. MCP hosts can use these hints to
+# explain and confirm read, write, and destructive operations.
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )

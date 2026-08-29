@@ -30,3 +30,27 @@ def test_manifest_declares_exactly_the_runtime_tools():
 
     runtime = set(mcp._tool_manager._tools)
     assert declared == runtime
+
+
+def test_public_metadata_positions_memocat_as_cross_system_shared_memory():
+    manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
+    registry = json.loads((ROOT / "server.json").read_text(encoding="utf-8"))
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert "Shared AI Memory" in manifest["display_name"]
+    assert "shared" in manifest["description"].lower()
+    assert "AI agents and systems" in manifest["description"]
+    assert "AI agents and systems" in registry["description"]
+    assert "AI agents and systems" in project["project"]["description"]
+
+    keywords = {keyword.lower() for keyword in manifest["keywords"]}
+    assert {
+        "shared memory",
+        "persistent memory",
+        "multi-agent memory",
+        "cross-session memory",
+        "mcp memory",
+        "claude memory",
+        "openai codex",
+        "cursor",
+    } <= keywords
