@@ -103,7 +103,11 @@ include = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-asyncio>=0.24"]
+test = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "tomli>=2; python_version < '3.11'",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import struct
-import tomllib
 from pathlib import Path
 
 
@@ -17,6 +16,26 @@ def project_version() -> str:
         if line.startswith("version = "):
             return line.split('"', 2)[1]
     raise SystemExit("pyproject.toml has no project version")
+
+
+def legacy_project_metadata() -> tuple[str, list[str]]:
+    """Read the two compatibility fields without requiring tomllib on Python 3.10."""
+    version = ""
+    dependencies: list[str] = []
+    in_project = False
+    for raw_line in (
+        ROOT / "compat/memocat-mcp/pyproject.toml"
+    ).read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line.startswith("["):
+            in_project = line == "[project]"
+        elif in_project and line.startswith("version = "):
+            version = line.split('"', 2)[1]
+        elif in_project and line.startswith("dependencies = "):
+            dependencies = [line.split('"', 2)[1]]
+    if not version:
+        raise SystemExit("compatibility pyproject.toml has no project version")
+    return version, dependencies
 
 
 def png_shape(path: Path) -> tuple[int, int, int]:
@@ -40,16 +59,14 @@ def main() -> None:
             encoding="utf-8"
         )
     )
-    legacy_project = tomllib.loads(
-        (ROOT / "compat/memocat-mcp/pyproject.toml").read_text(encoding="utf-8")
-    )
+    legacy_version, legacy_dependencies = legacy_project_metadata()
     expected = project_version()
     versions = {
         "manifest.json": manifest.get("version"),
         "server.json": registry.get("version"),
         "primary Claude plugin": primary_plugin.get("version"),
         "legacy Claude plugin": legacy_plugin.get("version"),
-        "legacy PyPI package": legacy_project["project"].get("version"),
+        "legacy PyPI package": legacy_version,
     }
     mismatches = {name: value for name, value in versions.items() if value != expected}
     if mismatches:
@@ -60,7 +77,7 @@ def main() -> None:
     if primary_plugin.get("name") != "montycat-mcp":
         raise SystemExit("primary Claude plugin is not named montycat-mcp")
     dependency = f"montycat-mcp=={expected}"
-    if dependency not in legacy_project["project"].get("dependencies", []):
+    if dependency not in legacy_dependencies:
         raise SystemExit(f"legacy PyPI package must depend on {dependency}")
 
     icon = ROOT / manifest["icon"]

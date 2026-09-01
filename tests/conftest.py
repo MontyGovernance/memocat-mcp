@@ -48,7 +48,32 @@ def _configure_env():
 def server(_configure_env):
     from memocat_mcp import server as srv
 
-    return srv
+    # Server state lives at module scope in production, but pytest-asyncio gives
+    # tests separate event loops. Never carry a bootstrap task or lock from one
+    # test's closed loop into the next test.
+    task = srv._bootstrap_task
+    if task is not None and not task.done():
+        task.cancel()
+    srv._bootstrap_task = None
+    srv._bootstrap_failure = None
+    srv._bootstrap_failed_at = 0.0
+    srv._acquisition_lock = None
+    srv._engine = None
+    srv._keyspaces.clear()
+    srv._ks_type_cache.clear()
+
+    yield srv
+
+    task = srv._bootstrap_task
+    if task is not None and not task.done():
+        task.cancel()
+    srv._bootstrap_task = None
+    srv._bootstrap_failure = None
+    srv._bootstrap_failed_at = 0.0
+    srv._acquisition_lock = None
+    srv._engine = None
+    srv._keyspaces.clear()
+    srv._ks_type_cache.clear()
 
 
 @pytest.fixture
