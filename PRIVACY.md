@@ -39,17 +39,17 @@ case, tool inputs and results travel between the user's computer and that
 engine. The engine operator's privacy and retention practices apply. Users
 should enable TLS for remote connections and use a trusted server certificate.
 
-MemoCat may access Monty Governance release metadata and download a signed
+MemoCat may access MontyGovernance release metadata and download a signed
 Montycat installer when automatic local setup is needed. Depending on the
 selected installation path, package or container artifacts may be obtained
-through Monty Governance infrastructure, operating-system installers, PyPI, or
+through MontyGovernance infrastructure, operating-system installers, PyPI, or
 Docker Hub. Those services may receive ordinary network metadata such as an IP
 address and user agent. Memory contents are not sent as part of installation.
 
 ## Sharing
 
 MemoCat does not sell user data. The local extension does not share memory
-contents with Monty Governance or advertising services. Data is shared only
+contents with MontyGovernance or advertising services. Data is shared only
 with the Montycat engine selected by the user and with services the user or
 their AI system explicitly invokes outside MemoCat.
 
@@ -65,7 +65,7 @@ delete those separately when desired.
 ## Security and contact
 
 Report security issues using the repository's security reporting channel or
-contact Monty Governance through https://montygovernance.com/contact-us.
+contact MontyGovernance through https://montygovernance.com/contact-us.
 Privacy questions may be submitted through the same contact form or the public
 issue tracker at https://github.com/MontyGovernance/memocat-mcp/issues. Monty
 Governance's website privacy policy is available at

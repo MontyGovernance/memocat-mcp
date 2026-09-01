@@ -47,7 +47,7 @@ model-specific plugin or another standalone vector database.
 
 ### Claude Code and Cowork plugin
 
-Add the Monty Governance marketplace and install MemoCat from inside Claude
+Add the MontyGovernance marketplace and install MemoCat from inside Claude
 Code:
 
 ```text
@@ -573,7 +573,7 @@ capability declarations, setup procedure, and every-tool verification sequence.
 MemoCat processes memory values, search queries, vectors, and configuration
 only as needed to perform MCP calls. By default, the MCP process and Montycat
 engine run locally, embeddings are generated on-device, and MemoCat includes no
-product analytics or telemetry that sends memory contents to Monty Governance.
+product analytics or telemetry that sends memory contents to MontyGovernance.
 A user-configured remote engine receives the MCP data sent to that engine and
 is governed by its operator's retention and privacy practices.
 
