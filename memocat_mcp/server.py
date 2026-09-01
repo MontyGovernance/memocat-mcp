@@ -359,6 +359,31 @@ async def _resolve_persistent(name: str) -> Optional[bool]:
     return None
 
 
+async def _inmemory_volumes(name: str) -> list:
+    """List the volume ids of an existing in-memory keyspace.
+
+    The in-memory client cannot scan by range: its get_keys accepts only
+    `volumes` or `latest_volume`, with no `limit` parameter. A full scan
+    therefore has to name every volume, and the engine's structure is the only
+    place they are published.
+    """
+    await _engine_ready()
+    res = await _call(_get_engine().get_structure_available())
+    if isinstance(res, dict) and res.get("status") is False:
+        raise KeyspaceBindingError(
+            f"Could not inspect keyspace {name!r}: {res.get('error') or 'unknown engine error'}"
+        )
+    payload = res.get("payload") if isinstance(res, dict) else None
+    structure = (payload or {}).get("structure") or {}
+    for store in structure.values():
+        if not isinstance(store, dict):
+            continue
+        entry = (store.get("inmemory") or {}).get(name)
+        if isinstance(entry, dict):
+            return [str(volume) for volume in (entry.get("volumes") or {})]
+    return []
+
+
 async def _ensure_keyspace(name: str, persistent: bool) -> bool:
     """Create a missing keyspace or return the type created by another caller.
 
@@ -1341,27 +1366,41 @@ async def memocat_list_memories(
         limit: Max records to return (default 25).
         recent: Bias toward the most recently written records (default True).
                 Ordering is approximate (by storage volume), not a strict timestamp sort.
-                Falls back to a full range scan when the latest volume is empty.
-                Pass False to scan the keyspace as a range from the start.
+                Falls back to a full scan when the latest volume is empty.
+                Pass False to scan the whole keyspace from the start.
     """
     _validate_limit(limit)
-    ks = await _bind(_resolve_keyspace(scope, keyspace))
+    name = _resolve_keyspace(scope, keyspace)
+    ks = await _bind(name)
     # get_keys needs a volume selector *or* a range; `latest_volume=False` alone
     # is neither, and the client rejects it with "Please provide volumes/latest
-    # volume or limit." The range is an inclusive [start, stop], so [0, limit]
-    # over-reads by one and the slice below trims it — [0, limit - 1] would
-    # collapse to [0, 0] at limit=1, which the client also reads as "no range".
-    selector = {"latest_volume": True} if recent else {"limit": [0, limit]}
-    keys_res = await _call(ks.get_keys(**selector))
+    # volume or limit." Only the persistent client takes a range: the in-memory
+    # one is get_keys(volumes, latest_volume) with no `limit` parameter at all,
+    # so handing it one raises TypeError instead of returning keys. The
+    # persistent range is an inclusive [start, stop], so [0, limit] over-reads
+    # by one and the slice below trims it — [0, limit - 1] would collapse to
+    # [0, 0] at limit=1, which the client also reads as "no range".
+    is_persistent = issubclass(ks, Keyspace.Persistent)
+
+    async def _scan_widest():
+        """Read the whole keyspace, however its storage type allows it."""
+        if is_persistent:
+            return await _call(ks.get_keys(limit=[0, limit]))
+        volumes = await _inmemory_volumes(name)
+        if not volumes:
+            return {"status": True, "payload": [], "error": None}
+        return await _call(ks.get_keys(volumes=volumes))
+
+    keys_res = await _call(ks.get_keys(latest_volume=True)) if recent else await _scan_widest()
     if isinstance(keys_res, dict) and keys_res.get("status") is False:
         return keys_res  # surface the failure instead of reporting "no memories"
     keys = keys_res.get("payload") if isinstance(keys_res, dict) else None
     if not keys and recent:
         # The latest volume can be empty while older volumes hold records, and
         # an empty payload is indistinguishable from "nothing remembered" once
-        # it reaches the caller. Widen to a range scan before reporting the
+        # it reaches the caller. Widen to a full scan before reporting the
         # keyspace as empty, so a populated keyspace is never listed as bare.
-        keys_res = await _call(ks.get_keys(limit=[0, limit]))
+        keys_res = await _scan_widest()
         if isinstance(keys_res, dict) and keys_res.get("status") is False:
             return keys_res
         keys = keys_res.get("payload") if isinstance(keys_res, dict) else None
