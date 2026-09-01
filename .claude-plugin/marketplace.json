@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "montygovernance",
+  "description": "Claude plugins from Monty Governance.",
+  "owner": {
+    "name": "Monty Governance"
+  },
+  "plugins": [
+    {
+      "name": "memocat-mcp",
+      "source": "./plugins/memocat-mcp",
+      "description": "Shared, persistent memory across Claude conversations and AI agents, with semantic recall and live updates.",
+      "author": {
+        "name": "Monty Governance"
+      },
+      "homepage": "https://github.com/MontyGovernance/memocat-mcp",
+      "repository": "https://github.com/MontyGovernance/memocat-mcp",
+      "license": "MIT",
+      "category": "productivity",
+      "tags": [
+        "memory",
+        "mcp",
+        "rag",
+        "semantic-search"
+      ]
+    }
+  ]
+}
