@@ -1,4 +1,4 @@
-# MemoCat MCP Server — Self-Hosted AI Agent Memory and Vector RAG
+# MemoCat — Shared Memory for AI Agents and Systems
 
 <!-- mcp-name: io.github.MontyGovernance/memocat-mcp -->
 
@@ -6,41 +6,42 @@
 [![Python](https://img.shields.io/pypi/pyversions/memocat-mcp.svg)](https://pypi.org/project/memocat-mcp/)
 [![License](https://img.shields.io/github/license/MontyGovernance/memocat-mcp.svg)](https://github.com/MontyGovernance/memocat-mcp/blob/master/LICENSE)
 
-**MemoCat is a self-hosted MCP memory server for Claude Desktop, Cursor,
-ChatGPT integrations, and autonomous AI agents.** It gives MCP clients private,
-persistent, semantically searchable long-term memory. `memocat-mcp` is a
-[Model Context Protocol](https://modelcontextprotocol.io) server for
-[Montycat](https://montygovernance.com), an **all-in-one, self-hosted data and
-memory engine for AI agents**.
+**MemoCat gives Claude, OpenAI/Codex, Cursor, and other MCP-compatible AI
+systems one shared, persistent memory.** Agents connected to the same memory
+can carry knowledge across conversations, hand context to one another, and
+react to what another agent learns in real time.
 
-Montycat combines the database, vector search, on-device embeddings, persistent
-and in-memory storage, real-time subscriptions, and data governance in one
-engine. MemoCat exposes those capabilities through MCP, so an agent does not
-need a separate vector database, embedding API, event broker, or governance
-service to build persistent memory and retrieval-augmented generation (RAG).
+MemoCat is not tied to one model, app, or agent framework. It is a
+[Model Context Protocol](https://modelcontextprotocol.io) memory layer backed
+by [Montycat](https://montygovernance.com). Run it locally for private memory
+across sessions and local clients, or connect multiple machines and systems to
+the same trusted Montycat engine for shared memory across agents.
 
 Memories are embedded on-device and recalled by meaning, metadata, timestamp,
-or exact key. No cloud vector database, external embedding API, or per-query
-bill.
+or exact key. Montycat keeps the database, vector search, embeddings,
+persistent and in-memory storage, live subscriptions, and governance together,
+so agents do not need separate vector, embedding, messaging, and policy
+services. No cloud embedding API or per-query bill.
 
 ## Features
 
-- Self-hosted long-term memory for MCP-compatible AI agents.
+- One persistent memory across conversations, agents, and MCP-compatible systems.
+- Shared scopes let multiple agents work from the same facts and project context.
 - Semantic vector search with metadata and time-range filtering for RAG.
 - Persistent memory, in-memory working spaces, bulk writes, updates, and deletion.
 - Real-time memory-change subscriptions without database polling.
-- Multi-agent scopes, shared memory, delegated-owner governance, and policy explanations.
+- Private scopes, delegated-owner governance, and policy explanations.
 - Keyspace lifecycle, semantic-model controls, snapshots, and revocation-safe watch buffers.
 - One-command `uvx memocat-mcp` entry point with native/Docker engine bootstrap.
 
 ## Why
 
-LLM agents forget context between runs. MemoCat stores each fact in Montycat,
-embeds and indexes it automatically, and retrieves relevant memories through 22
-agent-readable MCP tools. It is both a retrieval layer for RAG and a durable
-memory layer for autonomous agents. Unlike a collection of separate database,
-vector, embedding, messaging, and policy services, Montycat provides the full
-memory stack as one all-in-one engine that can run under your control.
+AI systems forget between conversations, and separate agents cannot naturally
+share what they learn. MemoCat gives them a common memory: one agent can store a
+decision, another can recall it by meaning, and a third can receive its update
+live. Its 23 MCP tools also support exact retrieval, lifecycle management, and
+governed deployments, but the core product is the shared memory layer—not a
+model-specific plugin or another standalone vector database.
 
 ## Install MemoCat MCP
 
@@ -111,6 +112,7 @@ uvx memocat-mcp
 | `memocat_policy_explain` | Explain whether a proposed governed action is allowed and why. |
 | `memocat_policy_history` | View governance history visible to the configured owner. |
 | `memocat_await_memory_change` | **Wait for memory to change** — returns the moment another agent or session writes. Live subscription, not polling. |
+| `memocat_install_engine` | Install the Montycat engine on this computer and start it. Opens your OS installer and asks for an administrator password, so it only ever runs when you ask for it. |
 
 ## Real-time memory watch
 
@@ -184,7 +186,7 @@ Create a `.env` file beside `compose.yaml`:
 MONTYCAT_USERNAME=admin
 MONTYCAT_PASSWORD=replace-with-a-strong-password
 MONTYCAT_STORE=memories
-MEMOCAT_VERSION=0.4.2
+MEMOCAT_VERSION=0.4.3
 # Apple Silicon: arm64-semantic. Intel/AMD64: semantic.
 MONTYCAT_IMAGE_TAG=semantic
 ```
@@ -200,7 +202,7 @@ After the public Docker image is released, use it instead of building from
 source:
 
 ```bash
-docker pull montygovernance/memocat-mcp:0.4.2
+docker pull montygovernance/memocat-mcp:0.4.3
 ```
 
 The Compose service uses `montygovernance/memocat-mcp:${MEMOCAT_VERSION}` and
@@ -241,33 +243,70 @@ For Apple Silicon set `MONTYCAT_IMAGE_TAG=arm64-semantic` in `.env`; the plain
 
 ### Engine auto-start
 
-MemoCat first reuses an engine already reachable through `MONTYCAT_URI` or the
-host/port settings. If none is running, it looks for an installed
-`montycat_bin` and then attempts the official platform route:
+MemoCat starts serving immediately and acquires an engine in the background, so
+the MCP handshake is never held up by a container pull or an embedding-model
+download. While that is still in progress, memory tools say so and ask you to
+try again in a moment rather than hanging.
 
-| Platform | Route | If it cannot complete |
+The engine may be local or remote. MemoCat first reuses one already reachable
+through `MONTYCAT_URI` or the host/port settings — including on another machine
+over TCP. If that address is not on this computer and nothing answers, MemoCat
+reports it and stops: starting a local engine for a remote address would create
+a second database and write memories where you are not looking.
+
+For a local engine that is not running, it tries, in order:
+
+| Step | Route | If it cannot complete |
 |---|---|---|
-| macOS Apple Silicon | Discover and download the latest verified `montycat-semantic_<version>_arm64.pkg`, open Installer, and wait for installation (may prompt for admin approval) | Docker |
-| macOS Intel | No Semantic package currently published | Docker |
-| Windows x86_64 | Download verified `.msi` and invoke Windows Installer (may prompt for UAC) | Docker |
-| Linux AMD64 | Run the official one-command APT setup for `montycat-semantic` (may prompt for sudo) | Docker |
-| Other platforms | — | Docker |
+| 1 | Launch an already-installed `montycat_bin` | Docker |
+| 2 | Start the `montygovernance/montycat` container | Report how to install |
+
+Before launching a local engine MemoCat asks the `montycat` CLI that ships
+beside it (`montycat version`, a compile-time constant that answers while the
+engine is down). An installation that cannot run — wrong architecture, missing
+ONNX libraries, no execute bit — is skipped immediately rather than launched and
+waited on, and the reported edition distinguishes a base-edition install from
+the Semantic one the memory tools need. Set `MEMOCAT_ENGINE_CLI` to point at a
+CLI in a non-standard location, or `MEMOCAT_ENGINE_BINARY` for the engine
+itself.
+
+**Installation is never automatic.** Acquiring the engine opens your operating
+system's installer and asks for an administrator password (or, on Linux, runs
+the APT setup with `sudo`), which should not happen as a side effect of opening
+a chat client. Ask for `memocat_install_engine` instead, and it runs with your
+consent:
+
+| Platform | Route |
+|---|---|
+| macOS Apple Silicon | Discover and download the latest verified `montycat-semantic_<version>_arm64.pkg`, open Installer, and wait for installation (prompts for admin approval) |
+| macOS Intel | No Semantic package currently published — use Docker |
+| Windows x86_64 | Download verified `.msi` and invoke Windows Installer (prompts for UAC) |
+| Linux AMD64 | Run the official one-command APT setup for `montycat-semantic` (prompts for sudo) |
+| Other platforms | Use Docker |
 
 MemoCat asks the shared Montycat release catalog for the current Semantic
 artifact for macOS or Windows. Artifact URLs are treated as opaque, and the
 package's adjacent `.sha256` is required and verified before Installer opens;
 verified packages are cached by filename. If catalog discovery is unavailable,
-automatic native installation falls through to Docker instead of silently
-installing an older package.
+installation stops instead of silently installing an older package.
 Override the URL with `MEMOCAT_INSTALLER_URL`, pin a release with
 `MEMOCAT_ENGINE_VERSION`, or adjust the Installer completion budget with
 `MEMOCAT_INSTALLER_TIMEOUT`. On Linux, set
 `MEMOCAT_APT_INSTALL_COMMAND` to use an organization-managed mirror or package
 command. ARM64 Linux goes directly to Docker because the official APT repository
-is AMD64-only. Set `MEMOCAT_AUTOSTART=off` to disable all installation/start
-attempts.
+is AMD64-only. Set `MEMOCAT_AUTOSTART=off` to disable all start attempts, and
+`MEMOCAT_READY_TIMEOUT` (default 20s) to change how long a tool waits for a
+starting engine before reporting progress.
 
-## Connect Claude Desktop
+## Connect multiple AI systems to one memory
+
+Use the same `MONTYCAT_URI` in each client to give Claude Desktop, Cursor,
+OpenAI Codex, and other MCP-compatible systems access to the same memory. A
+default local engine shares memory across sessions and local clients on one
+machine; cross-machine sharing requires a trusted network-reachable Montycat
+engine.
+
+### Claude Desktop
 
 Add MemoCat to `claude_desktop_config.json`, then restart Claude Desktop:
 
@@ -285,7 +324,7 @@ Add MemoCat to `claude_desktop_config.json`, then restart Claude Desktop:
 }
 ```
 
-## Connect Cursor
+### Cursor
 
 Add the same server definition to your Cursor MCP configuration:
 
@@ -303,7 +342,7 @@ Add the same server definition to your Cursor MCP configuration:
 }
 ```
 
-## Connect OpenAI Codex
+### OpenAI Codex
 
 Codex can register the local stdio server directly from a terminal:
 
@@ -315,7 +354,7 @@ codex mcp add memocat \
 
 Confirm the registration with `codex mcp list`, then start a new Codex session.
 
-## ChatGPT integration
+### ChatGPT integration
 
 MemoCat currently runs as a local **stdio MCP server**. It works directly with
 clients that can launch local MCP commands, including Claude Desktop, Cursor,
@@ -435,6 +474,97 @@ keyspace organization. For credential-enforced isolation, run one server
 instance per owner with that owner's delegated credentials; the engine then
 denies cross-owner access. Reserve superowner credentials for bootstrap and
 governance administration.
+
+## Claude Desktop extension (MCPB)
+
+MemoCat is also packaged as a local Claude Desktop extension. The extension
+runs this same stdio MCP server on the user's computer; it is not a hosted MCP
+service and does not expose the Montycat database ports as MCP endpoints.
+
+### Install
+
+Install the released `.mcpb` using one of these Claude Desktop methods:
+
+1. Double-click the `.mcpb` file.
+2. Drag the file into the Claude Desktop window.
+3. Open **Settings > Extensions > Advanced settings > Install Extension** and
+   select the file.
+
+Review the requested tools and configure the extension when prompted. Claude
+Desktop manages the UV-based Python runtime and installs the dependencies
+declared in `pyproject.toml`; a separate Python installation is not required by
+the MCPB runtime.
+
+### Extension settings
+
+| Setting | Purpose |
+|---|---|
+| Existing Montycat URI | Optional sensitive `montycat://user:password@host:port/store` connection. Leave blank for automatic local-engine discovery/setup. |
+| Use TLS for existing engine | Enables TLS certificate verification for a configured remote engine. |
+| Default memory keyspace | Namespace used when Claude does not specify a scope or keyspace. Defaults to `memory`. |
+| Local engine startup mode | `auto` discovers or starts the supported native/Docker engine; `off` requires an already-running engine. |
+
+For a remote engine, use a least-privilege delegated owner and enable TLS. Do
+not put a superowner credential into a shared desktop configuration.
+
+### Update and uninstall
+
+Install a newer signed/released MCPB with the same extension name and a higher
+version to update it. Removing the extension stops and removes its MCP process,
+but deliberately does not erase memory data.
+
+To remove data as well:
+
+- delete individual records or keyspaces before uninstalling when selective
+  deletion is desired;
+- remove the local MemoCat state directory at `~/.montycat` only when all
+  locally managed MemoCat configuration and cached installer state should be
+  removed;
+- if the engine was started through Docker, remove the `memocat_data` volume
+  separately (for example, inspect it first with `docker volume ls` and remove
+  that exact volume only when its stored memories are no longer needed);
+- for a user-configured remote engine, remove its data using that engine
+  operator's process—the desktop extension cannot delete an external
+  deployment merely by being uninstalled.
+
+Data deletion is irreversible. Back up required memories before removing a
+keyspace, engine data directory, snapshot set, or Docker volume.
+
+### MCPB troubleshooting
+
+- Open the extension details in Claude Desktop Settings and inspect its logs.
+- If startup reports that no engine is reachable, start the configured engine,
+  correct the URI, or change startup mode from `off` to `auto`.
+- If automatic setup cannot install a native engine, install Docker and retry,
+  or install Montycat manually and configure its URI.
+- On Apple Silicon, use the native `arm64-semantic` engine image; the plain
+  `semantic` tag is AMD64.
+- For remote TLS failures, verify the hostname and that the certificate is
+  trusted by the user's machine. Do not disable TLS merely to bypass a
+  certificate error.
+- Report reproducible problems at
+  https://github.com/MontyGovernance/memocat-mcp/issues or use
+  https://montygovernance.com/contact-us.
+
+Maintainers and directory reviewers can use
+[MCPB_SUBMISSION.md](MCPB_SUBMISSION.md) for the complete listing copy,
+capability declarations, setup procedure, and every-tool verification sequence.
+
+## Privacy Policy
+
+MemoCat processes memory values, search queries, vectors, and configuration
+only as needed to perform MCP calls. By default, the MCP process and Montycat
+engine run locally, embeddings are generated on-device, and MemoCat includes no
+product analytics or telemetry that sends memory contents to Monty Governance.
+A user-configured remote engine receives the MCP data sent to that engine and
+is governed by its operator's retention and privacy practices.
+
+Persistent memories, snapshots, native engine data, and Docker volumes remain
+until the user deletes them; uninstalling the MCPB alone does not erase them.
+The complete policy—including collection, storage, sharing, retention,
+deletion, third-party distribution services, and contact information—is in
+[PRIVACY.md](PRIVACY.md) and is published at
+https://github.com/MontyGovernance/memocat-mcp/blob/master/PRIVACY.md.
 
 ## Links
 

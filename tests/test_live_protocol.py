@@ -38,7 +38,9 @@ async def mcp_session():
 
     params = StdioServerParameters(
         command=sys.executable,
-        args=["-c", "from memocat_mcp.server import main; main()"],
+        # Exercise the exact script named by manifest.json, not merely the
+        # underlying import that the normal console entry point also uses.
+        args=["mcpb_entry.py"],
         env=env,
         cwd=REPO_ROOT,
     )
@@ -57,6 +59,8 @@ async def test_advertises_resource_subscription():
         resources = init.capabilities.resources
         assert resources is not None
         assert resources.subscribe is True
+        assert init.instructions is not None
+        assert "shared, persistent memory" in init.instructions
 
 
 async def test_tools_are_listed_under_the_memocat_name():

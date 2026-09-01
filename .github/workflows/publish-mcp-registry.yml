@@ -24,6 +24,33 @@ jobs:
       - name: Validate server manifest
         run: ./mcp-publisher validate
 
+      # The Docker workflow fires on the same tag and runs in parallel. Registry
+      # validation pulls the image's ownership annotation, so publishing before
+      # the multi-arch build finishes would fail on a tag that is otherwise fine.
+      - name: Wait for the Docker image referenced by server.json
+        run: |
+          IMAGE="$(python3 -c '
+          import json
+          for p in json.load(open("server.json"))["packages"]:
+              if p["registryType"] == "oci":
+                  print(p["identifier"].removeprefix("docker.io/"))
+                  break
+          ')"
+          if [ -z "$IMAGE" ]; then
+            echo "No OCI package in server.json; nothing to wait for."
+            exit 0
+          fi
+          echo "Waiting for $IMAGE"
+          for attempt in $(seq 1 60); do
+            if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+              echo "Found $IMAGE after ${attempt} attempt(s)."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Timed out after 30 minutes waiting for $IMAGE" >&2
+          exit 1
+
       - name: Authenticate with GitHub OIDC
         run: ./mcp-publisher login github-oidc
 

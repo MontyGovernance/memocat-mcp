@@ -3,11 +3,11 @@
 # `docker compose run -T mcp`) and keep Montycat in the companion service.
 FROM python:3.12-slim
 
-ARG VERSION=0.4.2
+ARG VERSION=0.4.3
 ARG VCS_REF=unknown
 
 LABEL org.opencontainers.image.title="MemoCat MCP" \
-      org.opencontainers.image.description="Self-hosted AI agent memory MCP server powered by Montycat" \
+      org.opencontainers.image.description="Shared, persistent memory across AI agents and systems through MCP" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.source="https://github.com/MontyGovernance/memocat-mcp" \

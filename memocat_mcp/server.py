@@ -1,8 +1,9 @@
 """Montycat MCP server.
 
-Exposes a Montycat engine to LLM agents as MCP tools, turning it into
-self-hosted, semantically-searchable long-term memory: agents store facts and
-recall them by meaning (vector search) or by key, all on your own hardware.
+Exposes a Montycat engine as shared, persistent memory for MCP-compatible AI
+systems. Agents connected to the same engine and keyspace can store facts,
+recall them by meaning or key, and react to each other's updates while the data
+remains on user-controlled hardware.
 
 Connection is configured from the environment:
 
@@ -62,12 +63,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
+import time
+from contextlib import suppress
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from montycat import (
     Engine,
     Keyspace,
@@ -79,7 +84,35 @@ from montycat import (
 
 from .watch import registry as watch_registry
 
-mcp = FastMCP("memocat")
+SERVER_INSTRUCTIONS = """MemoCat is shared, persistent memory for AI agents and
+systems. Search it for relevant prior context before asking the user to repeat
+information. Remember durable preferences, facts, and decisions when the user
+asks or when they will clearly be useful in a later conversation; update stale
+facts instead of creating conflicting duplicates. Use scope='shared' only when
+the user intends other authorized agents to access the memory. Sharing requires
+clients to connect to the same Montycat engine and keyspace—separate local
+engines do not synchronize. Do not store secrets or full conversation
+transcripts by default."""
+
+mcp = FastMCP("memocat", instructions=SERVER_INSTRUCTIONS)
+
+# Safety metadata returned by MCP tools/list. MCP hosts can use these hints to
+# explain and confirm read, write, and destructive operations.
+READ_ONLY = ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+)
+MUTATING = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+)
+DESTRUCTIVE = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
+)
+# Installing the engine reaches the network and opens the OS installer behind an
+# administrator prompt. `destructiveHint` is what makes a client confirm before
+# running a tool, and that consent is the entire point of this one.
+INSTALLS_SOFTWARE = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=True
+)
 
 _engine: Optional[Engine] = None
 _keyspaces: dict[tuple[str, bool], Any] = {}
@@ -89,6 +122,10 @@ _ks_type_cache: dict[str, bool] = {}
 
 class KeyspaceBindingError(RuntimeError):
     """The server could not safely determine or provision a keyspace."""
+
+
+class EngineStarting(RuntimeError):
+    """Bootstrap is still running; the engine is not reachable yet."""
 
 
 def _now_iso() -> str:
@@ -241,7 +278,10 @@ def _validate_score(min_score: Optional[float]) -> None:
 
 
 def _default_keyspace() -> str:
-    return os.environ.get("MONTYCAT_DEFAULT_KEYSPACE", "memory")
+    # A cleared MCPB settings field arrives as an empty string, not an absent
+    # variable, so `get(..., default)` alone would hand every tool "" as the
+    # keyspace. Treat blank as unset.
+    return os.environ.get("MONTYCAT_DEFAULT_KEYSPACE", "").strip() or "memory"
 
 
 def _scope_prefix() -> str:
@@ -297,6 +337,7 @@ async def _resolve_persistent(name: str) -> Optional[bool]:
     """Detect whether an existing keyspace is persistent (True) or in-memory
     (False) from the engine's structure. Returns None if it does not exist yet.
     Result is cached per name."""
+    await _engine_ready()
     if name in _ks_type_cache:
         return _ks_type_cache[name]
     res = await _call(_get_engine().get_structure_available())
@@ -388,6 +429,7 @@ async def _bind(name: Optional[str] = None, persistent: Optional[bool] = None):
     A keyspace that does not exist yet is created when MONTYCAT_AUTO_PROVISION
     is enabled (default true).
     """
+    await _engine_ready()
     name = name or _default_keyspace()
     if persistent is None:
         detected = await _resolve_persistent(name)
@@ -404,21 +446,134 @@ async def _bind(name: Optional[str] = None, persistent: Optional[bool] = None):
     return _keyspace(name, persistent=persistent)
 
 
+# ── engine readiness ─────────────────────────────────────────────────────────
+
+# Bootstrap runs as a background task so the MCP handshake is never blocked
+# behind it: acquiring an engine can involve a container pull or an embedding
+# model download, and no client waits minutes for `initialize`.
+_bootstrap_task: Optional[asyncio.Task] = None
+_bootstrap_failure: Optional[str] = None
+_bootstrap_failed_at: float = 0.0
+_acquisition_lock: Optional[asyncio.Lock] = None
+
+# How long a tool waits for a pending bootstrap before reporting back instead of
+# hanging. Short enough to stay inside any client's tool timeout, long enough
+# that a reachable engine, an installed binary, or a warm container all resolve
+# invisibly.
+_READY_BUDGET = 20.0
+# A bootstrap that failed is retried after this, so starting Docker mid-session
+# does not require restarting the whole server.
+_RETRY_COOLDOWN = 30.0
+
+
+def _ready_budget() -> float:
+    try:
+        return max(0.5, float(os.environ.get("MEMOCAT_READY_TIMEOUT", _READY_BUDGET)))
+    except ValueError:
+        return _READY_BUDGET
+
+
+async def _bootstrap() -> str:
+    from .bootstrap import ensure_engine
+
+    global _bootstrap_failure, _bootstrap_failed_at
+    try:
+        async with _acquisition_guard():
+            tier = await ensure_engine()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        detail = str(exc).strip()
+        _bootstrap_failure = detail or f"{type(exc).__name__} while acquiring the engine."
+        _bootstrap_failed_at = time.monotonic()
+        raise
+    _bootstrap_failure = None
+    if tier != "existing":
+        logging.getLogger("memocat").info("started Montycat engine via %s", tier)
+    return tier
+
+
+def _acquisition_guard() -> asyncio.Lock:
+    """Serialize automatic acquisition and the explicit installer tool."""
+    global _acquisition_lock
+    if _acquisition_lock is None:
+        _acquisition_lock = asyncio.Lock()
+    return _acquisition_lock
+
+
+def start_bootstrap() -> asyncio.Task:
+    """Begin (or restart) engine acquisition in the background."""
+    global _bootstrap_task
+    if _bootstrap_task is None or _bootstrap_task.done():
+        if _bootstrap_task is not None and not _bootstrap_task.cancelled():
+            # Retrieve a background failure before replacing its task. Without
+            # this, a startup failure that no tool observed emits an asyncio
+            # "Task exception was never retrieved" warning at shutdown.
+            with suppress(Exception):
+                _bootstrap_task.exception()
+        _bootstrap_task = asyncio.create_task(_bootstrap())
+    return _bootstrap_task
+
+
+async def _engine_ready() -> None:
+    """Block until an engine is usable, or explain why it is not.
+
+    Engine-access boundaries go through here after validating tool arguments.
+    Bootstrap hands credentials over by setting environment variables, and
+    `_get_engine()` reads them once and caches the Engine for the life of the
+    process — so binding before bootstrap would pin empty credentials.
+    """
+    global _bootstrap_task
+    # A cached engine proves acquisition already completed. This is also the
+    # supported seam for unit tests that inject an isolated fake engine.
+    if _engine is not None:
+        return
+    task = _bootstrap_task
+    if task is None:
+        task = start_bootstrap()
+    elif task.done() and _bootstrap_failure is not None:
+        if not task.cancelled():
+            with suppress(Exception):
+                task.exception()
+        if time.monotonic() - _bootstrap_failed_at < _RETRY_COOLDOWN:
+            raise KeyspaceBindingError(_bootstrap_failure)
+        task = start_bootstrap()
+
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=_ready_budget())
+    except asyncio.TimeoutError:
+        raise EngineStarting(
+            "The Montycat engine is still starting — it may be downloading a "
+            "container image or an embedding model. Ask me again in a moment."
+        ) from None
+    except Exception as exc:  # BootstrapError, surfaced with its instructions
+        raise KeyspaceBindingError(_bootstrap_failure or str(exc)) from None
+
+
 # ── tools ────────────────────────────────────────────────────────────────────
 
 
-def _binding_failure(tool):
-    """Turn discovery/provisioning failures into normal MCP result envelopes."""
+def _engine_tool(tool):
+    """Normalise readiness and keyspace-binding failures from a tool.
+
+    Readiness is checked at the engine-access boundary inside the tool, after
+    its argument validation. Both failure types become ordinary MCP result
+    envelopes instead of transport errors or hangs.
+    """
     @wraps(tool)
     async def wrapped(*args, **kwargs):
         try:
             return await tool(*args, **kwargs)
-        except KeyspaceBindingError as exc:
+        except (KeyspaceBindingError, EngineStarting) as exc:
             return _failure(str(exc))
     return wrapped
 
 
-@mcp.tool()
+# Retained: `_binding_failure` was the pre-readiness name for this decorator.
+_binding_failure = _engine_tool
+
+
+@mcp.tool(title="Search Memories", annotations=READ_ONLY)
 @_binding_failure
 async def memocat_semantic_search(
     query: str = "",
@@ -483,7 +638,7 @@ async def memocat_semantic_search(
     ))
 
 
-@mcp.tool()
+@mcp.tool(title="Store Memory", annotations=MUTATING)
 @_binding_failure
 async def memocat_remember(
     value: dict,
@@ -535,7 +690,7 @@ async def memocat_remember(
     ))
 
 
-@mcp.tool()
+@mcp.tool(title="Recall Memories", annotations=READ_ONLY)
 @_binding_failure
 async def memocat_recall(
     keyspace: Optional[str] = None,
@@ -559,21 +714,59 @@ async def memocat_recall(
         limit: Max results for a filter lookup (default 25).
     """
     _validate_limit(limit)
+    if key is None and custom_key is None and not filters:
+        raise ValueError("Provide one of: key, custom_key, or filters.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     if key is not None or custom_key is not None:
         return await _call(ks.get_value(key=key, custom_key=custom_key))
     if filters:
         return await _call(ks.lookup_values_where(limit=limit, key_included=True, **filters))
-    raise ValueError("Provide one of: key, custom_key, or filters.")
+    raise AssertionError("validated recall selector was not handled")
 
 
-@mcp.tool()
+@mcp.tool(title="Install Montycat Engine", annotations=INSTALLS_SOFTWARE)
+async def memocat_install_engine() -> Any:
+    """Install the Montycat engine on THIS computer, then start it.
+
+    Call this only when memory tools report that no engine is running and the
+    user has agreed to install one. Tell them what it does first: it downloads
+    the Montycat Semantic package (~18 MB) and opens your operating system's
+    installer, which asks for an administrator password. On Linux it runs the
+    documented APT installation with `sudo`.
+
+    Refuses when MONTYCAT_URI is set or the configured host is not this
+    machine — MemoCat is pointed at an engine elsewhere, and installing a local
+    one would create a second database and write memories where nobody is
+    looking. Does nothing if an engine is already reachable.
+
+    Not needed when Docker is available: engine startup falls back to a
+    container automatically, with no prompt.
+    """
+    from .bootstrap import BootstrapError, install_engine
+
+    global _bootstrap_failure
+    try:
+        async with _acquisition_guard():
+            message = await install_engine()
+    except BootstrapError as exc:
+        return _failure(str(exc))
+    # The engine is up and its credentials are published; let the next tool call
+    # proceed instead of replaying a cached failure through the cooldown.
+    _bootstrap_failure = None
+    start_bootstrap()
+    return {"status": True, "payload": {"detail": message}, "error": None}
+
+
+@mcp.tool(title="List Memory Keyspaces", annotations=READ_ONLY)
+@_engine_tool
 async def memocat_list_keyspaces() -> Any:
     """List the available memory stores and keyspaces on this Montycat engine."""
+    await _engine_ready()
     return await _call(_get_engine().get_structure_available())
 
 
-@mcp.tool()
+@mcp.tool(title="View Memory Policy", annotations=READ_ONLY)
+@_engine_tool
 async def memocat_policy_view(store: Optional[str] = None) -> Any:
     """View the configured owner's effective Montycat governance policy.
 
@@ -586,12 +779,14 @@ async def memocat_policy_view(store: Optional[str] = None) -> Any:
         store: Optional store to inspect. Defaults to the store configured by
                MONTYCAT_URI or MONTYCAT_STORE.
     """
+    await _engine_ready()
     engine = _get_engine()
     store = store or engine.store
     return await _call(engine.policy_view(store=store))
 
 
-@mcp.tool()
+@mcp.tool(title="View Policy History", annotations=READ_ONLY)
+@_engine_tool
 async def memocat_policy_history(
     store: Optional[str] = None,
     keyspace: Optional[str] = None,
@@ -606,6 +801,7 @@ async def memocat_policy_history(
         store: Optional store filter. Defaults to the configured store.
         keyspace: Optional keyspace filter.
     """
+    await _engine_ready()
     engine = _get_engine()
     store = store or engine.store
     if keyspace and not store:
@@ -615,7 +811,8 @@ async def memocat_policy_history(
     return await _call(engine.policy_history(store=store, keyspace=keyspace))
 
 
-@mcp.tool()
+@mcp.tool(title="Explain Policy Decision", annotations=READ_ONLY)
+@_engine_tool
 async def memocat_policy_explain(
     capability: str,
     store: Optional[str] = None,
@@ -663,6 +860,7 @@ async def memocat_policy_explain(
             allowed = ", ".join(item.value for item in SemanticModel)
             raise ValueError(f"semantic_model must be one of: {allowed}.") from exc
 
+    await _engine_ready()
     engine = _get_engine()
     store = store or engine.store
     if not store:
@@ -678,7 +876,8 @@ async def memocat_policy_explain(
     ))
 
 
-@mcp.tool()
+@mcp.tool(title="Create Memory Keyspace", annotations=MUTATING)
+@_engine_tool
 async def memocat_create_keyspace(
     keyspace: str,
     storage: Optional[str] = None,
@@ -736,6 +935,7 @@ async def memocat_create_keyspace(
             raise ValueError(f"semantic_model must be one of: {allowed}.") from exc
         semantic = True
 
+    await _engine_ready()
     ks = _keyspace(keyspace, persistent=is_persistent)
     if is_persistent:
         result = await _call(ks.create_keyspace(
@@ -781,7 +981,7 @@ async def memocat_create_keyspace(
     return result
 
 
-@mcp.tool()
+@mcp.tool(title="Delete Memory Keyspace", annotations=DESTRUCTIVE)
 @_binding_failure
 async def memocat_remove_keyspace(
     keyspace: Optional[str] = None,
@@ -829,7 +1029,8 @@ async def memocat_remove_keyspace(
     return result
 
 
-@mcp.tool()
+@mcp.tool(title="Enable Semantic Search", annotations=MUTATING)
+@_engine_tool
 async def memocat_enable_semantic(
     keyspace: str,
     store: Optional[str] = None,
@@ -862,6 +1063,7 @@ async def memocat_enable_semantic(
             allowed = ", ".join(item.value for item in SemanticModel)
             raise ValueError(f"semantic_model must be one of: {allowed}.") from exc
 
+    await _engine_ready()
     engine = _get_engine()
     store = store or engine.store
     if not store:
@@ -886,7 +1088,8 @@ def _semantic_store(engine: Engine, store: Optional[str]) -> str:
     return resolved
 
 
-@mcp.tool()
+@mcp.tool(title="View Semantic Search Status", annotations=READ_ONLY)
+@_engine_tool
 async def memocat_semantic_status(
     store: Optional[str] = None,
     keyspace: Optional[str] = None,
@@ -898,13 +1101,15 @@ async def memocat_semantic_status(
     """
     if keyspace is not None and (not isinstance(keyspace, str) or not keyspace.strip()):
         raise ValueError("keyspace must be a non-empty string when provided.")
+    await _engine_ready()
     engine = _get_engine()
     if keyspace is not None:
         store = _semantic_store(engine, store)
     return await _call(engine.get_semantic_status(store=store, keyspace=keyspace))
 
 
-@mcp.tool()
+@mcp.tool(title="Enable External Vectors", annotations=MUTATING)
+@_engine_tool
 async def memocat_enable_external_vectors(
     keyspace: str,
     dimensions: int,
@@ -918,6 +1123,7 @@ async def memocat_enable_external_vectors(
         raise ValueError("dimensions must be an integer between 1 and 4096.")
     if not isinstance(embedding_space, str) or not 1 <= len(embedding_space) <= 128:
         raise ValueError("embedding_space must contain 1 to 128 characters.")
+    await _engine_ready()
     engine = _get_engine()
     store = _semantic_store(engine, store)
     return await _call(engine.enable_precomputed_vector_search(
@@ -925,7 +1131,8 @@ async def memocat_enable_external_vectors(
     ))
 
 
-@mcp.tool()
+@mcp.tool(title="Rebuild Semantic Vectors", annotations=DESTRUCTIVE)
+@_engine_tool
 async def memocat_reembed_semantic(
     keyspace: str,
     semantic_model: str,
@@ -946,6 +1153,7 @@ async def memocat_reembed_semantic(
     except ValueError as exc:
         allowed = ", ".join(item.value for item in SemanticModel)
         raise ValueError(f"semantic_model must be one of: {allowed}.") from exc
+    await _engine_ready()
     engine = _get_engine()
     store = _semantic_store(engine, store)
     return await _call(engine.reembed_semantic_search(
@@ -953,7 +1161,8 @@ async def memocat_reembed_semantic(
     ))
 
 
-@mcp.tool()
+@mcp.tool(title="Disable Semantic Search", annotations=DESTRUCTIVE)
+@_engine_tool
 async def memocat_disable_semantic(
     keyspace: str,
     store: Optional[str] = None,
@@ -974,6 +1183,7 @@ async def memocat_disable_semantic(
     if not isinstance(keyspace, str) or not keyspace.strip():
         raise ValueError("keyspace must be a non-empty string.")
 
+    await _engine_ready()
     engine = _get_engine()
     store = store or engine.store
     if not store:
@@ -1001,7 +1211,7 @@ async def _snapshot_keyspace(keyspace: str):
     return _keyspace(keyspace, persistent=False)
 
 
-@mcp.tool()
+@mcp.tool(title="Start Memory Snapshots", annotations=MUTATING)
 @_binding_failure
 async def memocat_start_snapshots(keyspace: str) -> Any:
     """Start scheduled snapshots for one existing in-memory keyspace.
@@ -1021,7 +1231,7 @@ async def memocat_start_snapshots(keyspace: str) -> Any:
     return await _call(ks.do_snaphots_for_keyspace())
 
 
-@mcp.tool()
+@mcp.tool(title="Stop Memory Snapshots", annotations=MUTATING)
 @_binding_failure
 async def memocat_stop_snapshots(keyspace: str) -> Any:
     """Stop scheduled snapshots for one existing in-memory keyspace.
@@ -1036,7 +1246,7 @@ async def memocat_stop_snapshots(keyspace: str) -> Any:
     return await _call(ks.stop_snapshots_for_keyspace())
 
 
-@mcp.tool()
+@mcp.tool(title="Delete Memory Snapshots", annotations=DESTRUCTIVE)
 @_binding_failure
 async def memocat_clean_snapshots(keyspace: str) -> Any:
     """Delete snapshot files for one existing in-memory keyspace.
@@ -1052,7 +1262,7 @@ async def memocat_clean_snapshots(keyspace: str) -> Any:
     return await _call(ks.clean_snapshots_for_keyspace())
 
 
-@mcp.tool()
+@mcp.tool(title="Delete Memory", annotations=DESTRUCTIVE)
 @_binding_failure
 async def memocat_forget(
     keyspace: Optional[str] = None,
@@ -1076,7 +1286,7 @@ async def memocat_forget(
     return await _call(ks.delete_key(key=key, custom_key=custom_key, wait_for_index=wait_for_index))
 
 
-@mcp.tool()
+@mcp.tool(title="Update Memory", annotations=MUTATING)
 @_binding_failure
 async def memocat_update(
     updates: dict,
@@ -1112,7 +1322,7 @@ async def memocat_update(
     ))
 
 
-@mcp.tool()
+@mcp.tool(title="List Memories", annotations=READ_ONLY)
 @_binding_failure
 async def memocat_list_memories(
     keyspace: Optional[str] = None,
@@ -1144,7 +1354,7 @@ async def memocat_list_memories(
     return await _call(ks.get_bulk(bulk_keys=keys, key_included=True))
 
 
-@mcp.tool()
+@mcp.tool(title="Store Multiple Memories", annotations=MUTATING)
 @_binding_failure
 async def memocat_remember_bulk(
     values: list,
@@ -1177,7 +1387,7 @@ async def memocat_remember_bulk(
     ))
 
 
-@mcp.tool()
+@mcp.tool(title="Wait for Memory Change", annotations=READ_ONLY)
 @_binding_failure
 async def memocat_await_memory_change(
     keyspace: Optional[str] = None,
@@ -1294,6 +1504,7 @@ async def _authorize_watch(keyspace: str) -> Optional[str]:
     Structure discovery is server-filtered by effective read authority and
     avoids fetching memory values. It is intentionally uncached for leases.
     """
+    await _engine_ready()
     result = await _call(_get_engine().get_structure_available())
     if isinstance(result, dict) and result.get("status") is False:
         return result.get("error") or "policy revalidation failed"
@@ -1463,24 +1674,8 @@ async def _run_stdio() -> None:
     path. If a future SDK exposes the capability properly, this collapses back
     to `mcp.run()`.
     """
-    import logging
-
     from mcp.server.lowlevel.server import NotificationOptions
     from mcp.server.stdio import stdio_server
-
-    from .bootstrap import BootstrapError, ensure_engine
-
-    # Make an engine available before serving: connect to one that is already
-    # running, else start it (AUTOSTART_PLAN.md). Logs go to stderr — stdout is
-    # the MCP transport and anything written there corrupts the protocol.
-    try:
-        tier = await ensure_engine()
-        if tier != "existing":
-            logging.getLogger("memocat").info("started Montycat engine via %s", tier)
-    except BootstrapError as exc:
-        # Fail with the instructions rather than serving tools that will all
-        # error one call later.
-        raise SystemExit(f"\n{exc}\n") from exc
 
     options = mcp._mcp_server.create_initialization_options(
         NotificationOptions(resources_changed=True)
@@ -1489,11 +1684,22 @@ async def _run_stdio() -> None:
         options.capabilities.resources.subscribe = True
 
     async with stdio_server() as (read_stream, write_stream):
+        # Acquire the engine *behind* the open transport, never in front of it.
+        # Connecting to a running engine is instant, but starting one can pull a
+        # container image or download an embedding model, and a client that is
+        # still waiting to complete `initialize` gives up long before that.
+        # Tools report progress through `_engine_ready` instead. Logs go to
+        # stderr — stdout is the transport and writing there corrupts it.
+        start_bootstrap()
         try:
             await mcp._mcp_server.run(read_stream, write_stream, options)
         finally:
             _resource_sessions.clear()
             await watch_registry.stop_all()
+            if _bootstrap_task is not None and not _bootstrap_task.done():
+                _bootstrap_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await _bootstrap_task
 
 
 def main() -> None:
