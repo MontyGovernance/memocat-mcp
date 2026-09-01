@@ -1,6 +1,6 @@
 """Zero-config engine bootstrap (AUTOSTART_PLAN.md).
 
-`uvx memocat-mcp` should work on a machine with no engine and no configuration.
+`uvx montycat-mcp` should work on a machine with no engine and no configuration.
 Four tiers, tried in order, first success wins:
 
   1. an engine is already reachable (or MONTYCAT_URI is set) -> just use it
@@ -69,7 +69,7 @@ logger = __import__("logging").getLogger("memocat.bootstrap")
 def _user_agent() -> str:
     from . import __version__
 
-    return f"memocat-mcp/{__version__} (+https://github.com/MontyGovernance/memocat-mcp)"
+    return f"montycat-mcp/{__version__} (+https://github.com/MontyGovernance/montycat-mcp)"
 
 
 def _urlopen(url: str, timeout: float):
@@ -229,7 +229,7 @@ def _publish_existing_credentials(host: str, port: int) -> None:
 
     Merely probing a port cannot identify an arbitrary user's engine, so never
     generate credentials in this path. Publish only explicit environment
-    credentials or a credential file that MemoCat already created.
+    credentials or a credential file that Montycat MCP already created.
     """
     env_user = os.environ.get("MONTYCAT_USERNAME")
     env_pass = os.environ.get("MONTYCAT_PASSWORD")
@@ -903,7 +903,7 @@ _INSTALL_HELP = (
     "  • or ask me to run `memocat_install_engine`, which downloads the package "
     "and opens your operating system's installer. It will ask for your "
     "administrator password.\n"
-    "Then point MemoCat at it with MONTYCAT_URI, or set MEMOCAT_AUTOSTART=off "
+    "Then point Montycat MCP at it with MONTYCAT_URI, or set MEMOCAT_AUTOSTART=off "
     "to skip this check."
 )
 
@@ -911,11 +911,11 @@ _INSTALL_HELP = (
 def _remote_engine_help(host: str, port: int) -> str:
     return (
         f"No Montycat engine is answering at {host}:{port}.\n"
-        "That address is not on this machine, so MemoCat will not start an "
+        "That address is not on this machine, so Montycat MCP will not start an "
         "engine for it — doing so would create a second, local database and "
         "write memories somewhere you are not looking.\n"
         "Start the engine on that host, correct MONTYCAT_URI / MONTYCAT_HOST, "
-        "or unset them to let MemoCat manage a local engine."
+        "or unset them to let Montycat MCP manage a local engine."
     )
 
 
@@ -938,9 +938,9 @@ async def ensure_engine() -> str:
         # setting that produced this branch. Say what actually helps here.
         raise BootstrapError(
             f"No engine at {host}:{port} and MEMOCAT_AUTOSTART=off.\n"
-            f"{_INSTALL_HELP.rsplit('Then point MemoCat at it', 1)[0]}"
-            "Then point MemoCat at it with MONTYCAT_URI, or set "
-            "MEMOCAT_AUTOSTART=auto to let MemoCat start one."
+            f"{_INSTALL_HELP.rsplit('Then point Montycat MCP at it', 1)[0]}"
+            "Then point Montycat MCP at it with MONTYCAT_URI, or set "
+            "MEMOCAT_AUTOSTART=auto to let Montycat MCP start one."
         )
 
     # An explicit MONTYCAT_URI is a promise that an engine lives there. Starting
@@ -949,7 +949,7 @@ async def ensure_engine() -> str:
     if os.environ.get("MONTYCAT_URI"):
         raise BootstrapError(
             f"MONTYCAT_URI points at {host}:{port} but nothing is listening there.\n"
-            "Start that engine, or unset MONTYCAT_URI to let MemoCat manage one."
+            "Start that engine, or unset MONTYCAT_URI to let Montycat MCP manage one."
         )
 
     # Same reasoning without a URI: MONTYCAT_HOST can name another machine, and
@@ -981,10 +981,10 @@ async def install_engine() -> str:
 
     if os.environ.get("MONTYCAT_URI"):
         raise BootstrapError(
-            "MONTYCAT_URI is set, so MemoCat is configured to use the engine at "
+            "MONTYCAT_URI is set, so Montycat MCP is configured to use the engine at "
             f"{host}:{port}. Installing a local engine would create a second "
             "database and write memories somewhere you are not looking.\n"
-            "Unset MONTYCAT_URI first if you want MemoCat to manage its own "
+            "Unset MONTYCAT_URI first if you want Montycat MCP to manage its own "
             "engine, or start the configured one."
         )
     if not _is_local(host):

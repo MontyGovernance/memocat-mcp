@@ -1,24 +1,24 @@
 {
   "manifest_version": "0.4",
   "name": "io.github.montygovernance.memocat",
-  "display_name": "MemoCat — Shared AI Memory",
-  "version": "0.4.3",
+  "display_name": "Montycat MCP — Shared AI Memory",
+  "version": "0.5.0",
   "description": "One shared, persistent memory across AI agents and systems—local-first, live, and searchable by meaning.",
-  "long_description": "MemoCat gives Claude Desktop and other MCP-compatible AI systems one durable memory across conversations. Agents connected to the same Montycat engine can remember preferences, decisions, facts, and structured knowledge; recall relevant context by meaning; and react to each other's updates in real time. Run it locally by default or connect it to a trusted shared engine, with the database and embeddings under your control.",
+  "long_description": "Montycat MCP gives Claude Desktop and other MCP-compatible AI systems one durable memory across conversations. Agents connected to the same Montycat engine can remember preferences, decisions, facts, and structured knowledge; recall relevant context by meaning; and react to each other's updates in real time. Run it locally by default or connect it to a trusted shared engine, with the database and embeddings under your control.",
   "author": {
     "name": "MontyGovernance",
     "url": "https://montygovernance.com"
   },
   "homepage": "https://montygovernance.com/ai-memory",
-  "documentation": "https://github.com/MontyGovernance/memocat-mcp#readme",
-  "support": "https://github.com/MontyGovernance/memocat-mcp/issues",
+  "documentation": "https://github.com/MontyGovernance/montycat-mcp#readme",
+  "support": "https://github.com/MontyGovernance/montycat-mcp/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/MontyGovernance/memocat-mcp"
+    "url": "https://github.com/MontyGovernance/montycat-mcp"
   },
   "license": "MIT",
   "privacy_policies": [
-    "https://github.com/MontyGovernance/memocat-mcp/blob/master/PRIVACY.md"
+    "https://github.com/MontyGovernance/montycat-mcp/blob/master/PRIVACY.md"
   ],
   "icon": "assets/icon.png",
   "keywords": [
@@ -70,7 +70,7 @@
     "montycat_uri": {
       "type": "string",
       "title": "Existing Montycat URI (optional)",
-      "description": "Leave blank to let MemoCat find or start a local engine. For an existing engine use montycat://user:password@host:port/store.",
+      "description": "Leave blank to let Montycat MCP find or start a local engine. For an existing engine use montycat://user:password@host:port/store.",
       "required": false,
       "default": "",
       "sensitive": true

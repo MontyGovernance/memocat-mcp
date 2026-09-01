@@ -1,0 +1,209 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+jobs:
+  build:
+    name: Test and build release artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Run test suite
+        run: uv run --extra test pytest -q --ignore-glob='tests/test_live_*.py'
+
+      - name: Build Python distributions
+        run: |
+          uv build --clear
+          uv build compat/memocat-mcp --out-dir dist
+
+      - name: Validate Python distributions
+        run: uv run --with twine twine check dist/*.whl dist/*.tar.gz
+
+      - name: Smoke-test built wheel
+        run: uv run --isolated --no-project --with dist/montycat_mcp-*.whl python -c 'import memocat_mcp; print(memocat_mcp.__version__)'
+
+      - name: Smoke-test legacy package migration
+        run: uv run --isolated --no-project --find-links dist --with "memocat-mcp==${{ steps.version.outputs.version }}" python -c 'import memocat_mcp; print(memocat_mcp.__version__)'
+
+      - name: Build and validate Claude Desktop extension
+        run: ./build_mcpb.sh
+
+      - name: Reject private or build-only files in MCPB
+        run: |
+          if unzip -Z1 dist/*.mcpb | grep -E '(^|/)(MCPB_SUBMISSION|.*_PLAN|RELEASE_COMMANDS)\.md$|(^|/)uv\.lock$'; then
+            echo "Private or build-only files found in MCPB" >&2
+            exit 1
+          fi
+
+      - name: Create MCPB checksum
+        working-directory: dist
+        run: sha256sum "montycat-mcp-${{ steps.version.outputs.version }}.mcpb" > "montycat-mcp-${{ steps.version.outputs.version }}.mcpb.sha256"
+
+      - name: Upload Python distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload Claude Desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-desktop-extension
+          path: |
+            dist/*.mcpb
+            dist/*.mcpb.sha256
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download Python distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Publish Python distributions
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+  publish-docker:
+    name: Publish Docker image
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push AMD64 and ARM64 images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ needs.build.outputs.version }}
+            VCS_REF=${{ github.sha }}
+          tags: |
+            montygovernance/montycat-mcp:${{ needs.build.outputs.version }}
+            montygovernance/montycat-mcp:latest
+            montygovernance/memocat-mcp:${{ needs.build.outputs.version }}
+            montygovernance/memocat-mcp:latest
+          labels: |
+            org.opencontainers.image.version=${{ needs.build.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  github-release:
+    name: Publish GitHub Release
+    needs: [build, publish-pypi, publish-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Claude Desktop artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: claude-desktop-extension
+          path: dist
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              dist/*.mcpb \
+              dist/*.mcpb.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              dist/*.mcpb \
+              dist/*.mcpb.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --title "$RELEASE_TAG"
+          fi
+
+  publish-registry:
+    name: Publish to MCP Registry
+    needs: [build, publish-pypi, publish-docker, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v5
+
+      - name: Install MCP publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Validate server manifest
+        run: ./mcp-publisher validate
+
+      - name: Authenticate with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server metadata
+        run: ./mcp-publisher publish

@@ -1,21 +1,20 @@
-# MemoCat — Shared Memory for AI Agents and Systems
+# Montycat MCP Server — Shared, Persistent Memory for AI Agents
 
-<!-- mcp-name: io.github.MontyGovernance/memocat-mcp -->
+<!-- mcp-name: io.github.MontyGovernance/montycat-mcp -->
 
-[![PyPI](https://img.shields.io/pypi/v/memocat-mcp.svg)](https://pypi.org/project/memocat-mcp/)
-[![Python](https://img.shields.io/pypi/pyversions/memocat-mcp.svg)](https://pypi.org/project/memocat-mcp/)
-[![License](https://img.shields.io/github/license/MontyGovernance/memocat-mcp.svg)](https://github.com/MontyGovernance/memocat-mcp/blob/master/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/montycat-mcp.svg)](https://pypi.org/project/montycat-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/montycat-mcp.svg)](https://pypi.org/project/montycat-mcp/)
+[![License](https://img.shields.io/github/license/MontyGovernance/montycat-mcp.svg)](https://github.com/MontyGovernance/montycat-mcp/blob/master/LICENSE)
 
-**MemoCat gives Claude, OpenAI/Codex, Cursor, and other MCP-compatible AI
-systems one shared, persistent memory.** Agents connected to the same memory
-can carry knowledge across conversations, hand context to one another, and
-react to what another agent learns in real time.
+**Montycat MCP is a local-first Model Context Protocol (MCP) memory server for
+Claude, OpenAI Codex, Cursor, and other AI agents.** It provides shared,
+persistent memory across conversations, semantic search for retrieval-augmented
+generation (RAG), and real-time updates between connected agents.
 
-MemoCat is not tied to one model, app, or agent framework. It is a
-[Model Context Protocol](https://modelcontextprotocol.io) memory layer backed
-by [Montycat](https://montygovernance.com). Run it locally for private memory
-across sessions and local clients, or connect multiple machines and systems to
-the same trusted Montycat engine for shared memory across agents.
+Montycat MCP is not tied to one model, app, or agent framework. The server uses
+[Montycat](https://montygovernance.com) as its database and vector-search
+engine. Run it locally for private, cross-session memory, or connect multiple
+machines and AI systems to one trusted Montycat engine for multi-agent memory.
 
 Memories are embedded on-device and recalled by meaning, metadata, timestamp,
 or exact key. Montycat keeps the database, vector search, embeddings,
@@ -23,7 +22,7 @@ persistent and in-memory storage, live subscriptions, and governance together,
 so agents do not need separate vector, embedding, messaging, and policy
 services. No cloud embedding API or per-query bill.
 
-## Features
+## AI memory server features
 
 - One persistent memory across conversations, agents, and MCP-compatible systems.
 - Shared scopes let multiple agents work from the same facts and project context.
@@ -32,33 +31,45 @@ services. No cloud embedding API or per-query bill.
 - Real-time memory-change subscriptions without database polling.
 - Private scopes, delegated-owner governance, and policy explanations.
 - Keyspace lifecycle, semantic-model controls, snapshots, and revocation-safe watch buffers.
-- One-command `uvx memocat-mcp` entry point with native/Docker engine bootstrap.
+- One-command `uvx montycat-mcp` entry point with native/Docker engine bootstrap.
 
-## Why
+## Why use Montycat MCP for AI agent memory?
 
 AI systems forget between conversations, and separate agents cannot naturally
-share what they learn. MemoCat gives them a common memory: one agent can store a
+share what they learn. Montycat MCP gives them a common memory: one agent can store a
 decision, another can recall it by meaning, and a third can receive its update
 live. Its 23 MCP tools also support exact retrieval, lifecycle management, and
 governed deployments, but the core product is the shared memory layer—not a
 model-specific plugin or another standalone vector database.
 
-## Install MemoCat MCP
+## Install the Montycat MCP server
+
+### Claude Desktop
+
+1. Download the latest `montycat-mcp-<version>.mcpb` from
+   [GitHub Releases](https://github.com/MontyGovernance/montycat-mcp/releases/latest).
+2. Double-click the downloaded file. You can also drag it into Claude Desktop
+   or select it under **Settings > Extensions > Advanced settings > Install
+   Extension**.
+3. Review the requested tools and complete the extension setup.
+
+The MCPB runs Montycat MCP locally over stdio and manages its UV-based Python
+runtime, so Claude Desktop users do not need to install Python separately.
 
 ### Claude Code and Cowork plugin
 
-Add the MontyGovernance marketplace and install MemoCat from inside Claude
+Add the MontyGovernance marketplace and install Montycat MCP from inside Claude
 Code:
 
 ```text
-/plugin marketplace add MontyGovernance/memocat-mcp
-/plugin install memocat-mcp@montygovernance
+/plugin marketplace add MontyGovernance/montycat-mcp
+/plugin install montycat-mcp@montygovernance
 ```
 
 The plugin runs the published Python package through `uvx`. Install
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/) first, then use
-`/mcp` after installation to confirm that the `memocat` server connected. See
-the [plugin setup guide](plugins/memocat-mcp/README.md) for engine configuration
+`/mcp` after installation to confirm that the `montycat` server connected. See
+the [plugin setup guide](plugins/montycat-mcp/README.md) for engine configuration
 and security notes.
 
 ### Other MCP clients
@@ -67,41 +78,50 @@ The fastest option is [`uvx`](https://docs.astral.sh/uv/guides/tools/), which
 runs the latest published package in an isolated environment:
 
 ```bash
-uvx memocat-mcp
+uvx montycat-mcp
 ```
 
 If `uvx` is not installed yet:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uvx memocat-mcp
+uvx montycat-mcp
 ```
 
 For a persistent command-line installation, use `pipx`:
 
 ```bash
-pipx install memocat-mcp
-memocat-mcp
+pipx install montycat-mcp
+montycat-mcp
 ```
 
 You can also install it into an existing Python environment:
 
 ```bash
-python -m pip install memocat-mcp
-memocat-mcp
+python -m pip install montycat-mcp
+montycat-mcp
 ```
 
-MemoCat requires Python 3.10 or newer. The package is published as
-[`memocat-mcp` on PyPI](https://pypi.org/project/memocat-mcp/).
+Montycat MCP requires Python 3.10 or newer. The package is published as
+[`montycat-mcp` on PyPI](https://pypi.org/project/montycat-mcp/).
 
-## Quick start with a Montycat engine
+### Upgrading from MemoCat MCP
 
-MemoCat reuses a configured Montycat Semantic engine or attempts the supported
-native/Docker bootstrap path. For an existing engine:
+Montycat MCP preserves the former `memocat-mcp` command, `memocat_mcp` Python
+module, `memocat_*` tool names, and `MEMOCAT_*` configuration variables.
+Existing installations continue to work, while new installations should use
+the `montycat-mcp` package and command. The legacy PyPI package and Claude
+plugin install the current Montycat MCP implementation rather than a separate
+server.
+
+## Quick start
+
+Montycat MCP reuses a configured Montycat Semantic engine or attempts the
+supported native/Docker bootstrap path. For an existing engine:
 
 ```bash
 export MONTYCAT_URI="montycat://memory-agent:password@localhost:21210/memories"
-uvx memocat-mcp
+uvx montycat-mcp
 ```
 
 ## Tools
@@ -158,8 +178,8 @@ Subscriptions open on demand and close when idle
 
 ## Montycat Semantic engine requirements
 
-- Python 3.10+ when installing MemoCat through `uv`, `pipx`, or `pip`.
-- Access to a **Montycat Semantic** engine. `uvx memocat-mcp` first reuses an
+- Python 3.10+ when installing Montycat MCP through `uv`, `pipx`, or `pip`.
+- Access to a **Montycat Semantic** engine. `uvx montycat-mcp` first reuses an
   existing engine, then attempts the supported native/platform installation
   path, and finally falls back to Docker. Semantic search is enabled by default
   in the Semantic edition.
@@ -204,7 +224,7 @@ Create a `.env` file beside `compose.yaml`:
 MONTYCAT_USERNAME=admin
 MONTYCAT_PASSWORD=replace-with-a-strong-password
 MONTYCAT_STORE=memories
-MEMOCAT_VERSION=0.4.3
+MEMOCAT_VERSION=0.5.0
 # Apple Silicon: arm64-semantic. Intel/AMD64: semantic.
 MONTYCAT_IMAGE_TAG=semantic
 ```
@@ -216,14 +236,13 @@ docker compose up -d montycat
 docker compose build mcp
 ```
 
-After the public Docker image is released, use it instead of building from
-source:
+To use the published image instead of building from source:
 
 ```bash
-docker pull montygovernance/memocat-mcp:0.4.3
+docker pull montygovernance/montycat-mcp:0.5.0
 ```
 
-The Compose service uses `montygovernance/memocat-mcp:${MEMOCAT_VERSION}` and
+The Compose service uses `montygovernance/montycat-mcp:${MEMOCAT_VERSION}` and
 waits for the Semantic engine health check before launching MCP. The image runs
 as an unprivileged `memocat` user and supports both AMD64 and ARM64.
 
@@ -247,7 +266,7 @@ client to invoke the Compose service on demand:
       "command": "docker",
       "args": [
         "compose",
-        "-f", "/absolute/path/to/memocat-mcp/compose.yaml",
+        "-f", "/absolute/path/to/montycat-mcp/compose.yaml",
         "run", "--rm", "-T", "mcp"
       ]
     }
@@ -261,14 +280,14 @@ For Apple Silicon set `MONTYCAT_IMAGE_TAG=arm64-semantic` in `.env`; the plain
 
 ### Engine auto-start
 
-MemoCat starts serving immediately and acquires an engine in the background, so
+Montycat MCP starts serving immediately and acquires an engine in the background, so
 the MCP handshake is never held up by a container pull or an embedding-model
 download. While that is still in progress, memory tools say so and ask you to
 try again in a moment rather than hanging.
 
-The engine may be local or remote. MemoCat first reuses one already reachable
+The engine may be local or remote. Montycat MCP first reuses one already reachable
 through `MONTYCAT_URI` or the host/port settings — including on another machine
-over TCP. If that address is not on this computer and nothing answers, MemoCat
+over TCP. If that address is not on this computer and nothing answers, Montycat MCP
 reports it and stops: starting a local engine for a remote address would create
 a second database and write memories where you are not looking.
 
@@ -279,7 +298,7 @@ For a local engine that is not running, it tries, in order:
 | 1 | Launch an already-installed `montycat_bin` | Docker |
 | 2 | Start the `montygovernance/montycat` container | Report how to install |
 
-Before launching a local engine MemoCat asks the `montycat` CLI that ships
+Before launching a local engine Montycat MCP asks the `montycat` CLI that ships
 beside it (`montycat version`, a compile-time constant that answers while the
 engine is down). An installation that cannot run — wrong architecture, missing
 ONNX libraries, no execute bit — is skipped immediately rather than launched and
@@ -302,7 +321,7 @@ consent:
 | Linux AMD64 | Run the official one-command APT setup for `montycat-semantic` (prompts for sudo) |
 | Other platforms | Use Docker |
 
-MemoCat asks the shared Montycat release catalog for the current Semantic
+Montycat MCP asks the shared Montycat release catalog for the current Semantic
 artifact for macOS or Windows. Artifact URLs are treated as opaque, and the
 package's adjacent `.sha256` is required and verified before Installer opens;
 verified packages are cached by filename. If catalog discovery is unavailable,
@@ -326,14 +345,14 @@ engine.
 
 ### Claude Desktop
 
-Add MemoCat to `claude_desktop_config.json`, then restart Claude Desktop:
+Add Montycat MCP to `claude_desktop_config.json`, then restart Claude Desktop:
 
 ```json
 {
   "mcpServers": {
     "memocat": {
       "command": "uvx",
-      "args": ["memocat-mcp"],
+      "args": ["montycat-mcp"],
       "env": {
         "MONTYCAT_URI": "montycat://memory-agent:agent-password@localhost:21210/mystore"
       }
@@ -351,7 +370,7 @@ Add the same server definition to your Cursor MCP configuration:
   "mcpServers": {
     "memocat": {
       "command": "uvx",
-      "args": ["memocat-mcp"],
+      "args": ["montycat-mcp"],
       "env": {
         "MONTYCAT_URI": "montycat://memory-agent:agent-password@localhost:21210/mystore"
       }
@@ -367,14 +386,14 @@ Codex can register the local stdio server directly from a terminal:
 ```bash
 codex mcp add memocat \
   --env MONTYCAT_URI="montycat://memory-agent:agent-password@localhost:21210/mystore" \
-  -- uvx memocat-mcp
+  -- uvx montycat-mcp
 ```
 
 Confirm the registration with `codex mcp list`, then start a new Codex session.
 
 ### ChatGPT integration
 
-MemoCat currently runs as a local **stdio MCP server**. It works directly with
+Montycat MCP currently runs as a local **stdio MCP server**. It works directly with
 clients that can launch local MCP commands, including Claude Desktop, Cursor,
 and Codex. A ChatGPT connector requires a remotely reachable MCP transport and
 cannot connect directly to this stdio command. Remote HTTP transport is not
@@ -388,12 +407,12 @@ Keep the normal `montycat://` connection URI and enable TLS separately:
 ```bash
 export MONTYCAT_URI="montycat://memory-agent:agent-password@db.example.com:21210/mystore"
 export MONTYCAT_TLS=true
-uvx memocat-mcp
+uvx montycat-mcp
 ```
 
 For a desktop client, add `"MONTYCAT_TLS": "true"` beside `MONTYCAT_URI` in
 the server's `env` object. The remote engine must present a certificate trusted
-by the machine running MemoCat. Setting `MONTYCAT_URI` disables local engine
+by the machine running Montycat MCP. Setting `MONTYCAT_URI` disables local engine
 auto-install and auto-start because it explicitly selects a managed engine.
 
 ## Security and delegated-owner setup
@@ -406,13 +425,13 @@ governance-administration workflow.
 The read-only `memocat_policy_view`, `memocat_policy_explain`, and
 `memocat_policy_history` tools expose policy information for the authenticated
 owner. They do not accept an owner override and cannot grant, revoke, deny, or
-otherwise mutate policy. When automatic keyspace provisioning fails, MemoCat
+otherwise mutate policy. When automatic keyspace provisioning fails, Montycat MCP
 also requests a read-only policy explanation and appends it to the original
 engine error when available.
 
 `memocat_remove_keyspace` is destructive and remains engine-authorized. A
 delegated owner may remove a keyspace through creator authority or an explicit
-`remove-keyspace` grant unless policy contains an overriding denial. MemoCat
+`remove-keyspace` grant unless policy contains an overriding denial. Montycat MCP
 closes active watches and releases resource subscriptions before requesting
 removal.
 
@@ -421,13 +440,13 @@ database-wide semantic controls; Montycat checks `manage-semantic`, creator
 authority, denials, and model allow-lists for every enable or disable request.
 
 Snapshot tools are likewise keyspace-scoped and work only with in-memory
-keyspaces. MemoCat does not expose the global snapshot-rate setting. A
+keyspaces. Montycat MCP does not expose the global snapshot-rate setting. A
 `Snapshot rate is not set` response means scheduling has not been configured
 on the engine; it is distinct from a governance denial.
 
 Active watches use short authorization leases because the current engine checks
 read authority when a subscription opens but does not terminate that connection
-after a later revocation. MemoCat revalidates against the engine's filtered
+after a later revocation. Montycat MCP revalidates against the engine's filtered
 structure view, closes the subscription on access loss, removes MCP resource
 ownership, wakes pending callers with an error, and permanently purges buffered
 changes so they cannot be replayed after access is restored.
@@ -493,25 +512,13 @@ instance per owner with that owner's delegated credentials; the engine then
 denies cross-owner access. Reserve superowner credentials for bootstrap and
 governance administration.
 
-## Claude Desktop extension (MCPB)
+## Claude Desktop extension configuration
 
-MemoCat is also packaged as a local Claude Desktop extension. The extension
-runs this same stdio MCP server on the user's computer; it is not a hosted MCP
-service and does not expose the Montycat database ports as MCP endpoints.
-
-### Install
-
-Install the released `.mcpb` using one of these Claude Desktop methods:
-
-1. Double-click the `.mcpb` file.
-2. Drag the file into the Claude Desktop window.
-3. Open **Settings > Extensions > Advanced settings > Install Extension** and
-   select the file.
-
-Review the requested tools and configure the extension when prompted. Claude
-Desktop manages the UV-based Python runtime and installs the dependencies
-declared in `pyproject.toml`; a separate Python installation is not required by
-the MCPB runtime.
+Montycat MCP's `.mcpb` package runs the stdio MCP server on the user's computer. It
+is not a hosted MCP service and does not expose the Montycat database ports as
+MCP endpoints. See the [Claude Desktop installation steps](#claude-desktop) or
+download the package from the [latest GitHub
+release](https://github.com/MontyGovernance/montycat-mcp/releases/latest).
 
 ### Extension settings
 
@@ -527,16 +534,18 @@ not put a superowner credential into a shared desktop configuration.
 
 ### Update and uninstall
 
-Install a newer signed/released MCPB with the same extension name and a higher
-version to update it. Removing the extension stops and removes its MCP process,
-but deliberately does not erase memory data.
+To update Montycat MCP, download the newer `.mcpb` from [GitHub
+Releases](https://github.com/MontyGovernance/montycat-mcp/releases/latest) and
+open it in Claude Desktop. When a matching `.sha256` asset is provided, it can
+be used to verify the download. Removing the extension stops and removes its
+MCP process, but deliberately does not erase memory data.
 
 To remove data as well:
 
 - delete individual records or keyspaces before uninstalling when selective
   deletion is desired;
-- remove the local MemoCat state directory at `~/.montycat` only when all
-  locally managed MemoCat configuration and cached installer state should be
+- remove the local Montycat MCP state directory at `~/.montycat` only when all
+  locally managed Montycat MCP configuration and cached installer state should be
   removed;
 - if the engine was started through Docker, remove the `memocat_data` volume
   separately (for example, inspect it first with `docker volume ls` and remove
@@ -561,18 +570,14 @@ keyspace, engine data directory, snapshot set, or Docker volume.
   trusted by the user's machine. Do not disable TLS merely to bypass a
   certificate error.
 - Report reproducible problems at
-  https://github.com/MontyGovernance/memocat-mcp/issues or use
+  https://github.com/MontyGovernance/montycat-mcp/issues or use
   https://montygovernance.com/contact-us.
-
-Maintainers and directory reviewers can use
-[MCPB_SUBMISSION.md](MCPB_SUBMISSION.md) for the complete listing copy,
-capability declarations, setup procedure, and every-tool verification sequence.
 
 ## Privacy Policy
 
-MemoCat processes memory values, search queries, vectors, and configuration
+Montycat MCP processes memory values, search queries, vectors, and configuration
 only as needed to perform MCP calls. By default, the MCP process and Montycat
-engine run locally, embeddings are generated on-device, and MemoCat includes no
+engine run locally, embeddings are generated on-device, and Montycat MCP includes no
 product analytics or telemetry that sends memory contents to MontyGovernance.
 A user-configured remote engine receives the MCP data sent to that engine and
 is governed by its operator's retention and privacy practices.
@@ -582,14 +587,15 @@ until the user deletes them; uninstalling the MCPB alone does not erase them.
 The complete policy—including collection, storage, sharing, retention,
 deletion, third-party distribution services, and contact information—is in
 [PRIVACY.md](PRIVACY.md) and is published at
-https://github.com/MontyGovernance/memocat-mcp/blob/master/PRIVACY.md.
+https://github.com/MontyGovernance/montycat-mcp/blob/master/PRIVACY.md.
 
 ## Links
 
-- [MemoCat MCP on PyPI](https://pypi.org/project/memocat-mcp/)
-- [MemoCat MCP source](https://github.com/MontyGovernance/memocat-mcp)
-- [Report an issue](https://github.com/MontyGovernance/memocat-mcp/issues)
-- [Changelog](https://github.com/MontyGovernance/memocat-mcp/blob/master/CHANGELOG.md)
+- [Montycat MCP on PyPI](https://pypi.org/project/montycat-mcp/)
+- [Claude Desktop downloads](https://github.com/MontyGovernance/montycat-mcp/releases/latest)
+- [Montycat MCP source](https://github.com/MontyGovernance/montycat-mcp)
+- [Report an issue](https://github.com/MontyGovernance/montycat-mcp/issues)
+- [Changelog](https://github.com/MontyGovernance/montycat-mcp/blob/master/CHANGELOG.md)
 - [Montycat documentation](https://montygovernance.com/docs)
 - [Montycat Semantic engine on Docker Hub](https://hub.docker.com/r/montygovernance/montycat)
 - [Montycat Python client on PyPI](https://pypi.org/project/montycat/)

@@ -31,7 +31,8 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
   exit 1
 fi
 
-readonly IMAGE="${MEMOCAT_DOCKER_IMAGE:-montygovernance/memocat-mcp}"
+readonly IMAGE="${MONTYCAT_MCP_DOCKER_IMAGE:-montygovernance/montycat-mcp}"
+readonly LEGACY_IMAGE="${MEMOCAT_DOCKER_IMAGE:-montygovernance/memocat-mcp}"
 readonly REVISION="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
 readonly BUILDER="memocat-multiarch"
 
@@ -42,7 +43,7 @@ fi
 
 docker buildx inspect "$BUILDER" --bootstrap >/dev/null
 
-echo "Publishing $IMAGE:$VERSION and $IMAGE:latest"
+echo "Publishing $IMAGE and compatibility tags under $LEGACY_IMAGE"
 echo "Platforms: linux/amd64, linux/arm64"
 echo
 echo "Docker Hub authentication is required. If needed, run: docker login"
@@ -56,6 +57,8 @@ docker buildx build \
   --label "org.opencontainers.image.revision=$REVISION" \
   --tag "$IMAGE:$VERSION" \
   --tag "$IMAGE:latest" \
+  --tag "$LEGACY_IMAGE:$VERSION" \
+  --tag "$LEGACY_IMAGE:latest" \
   --push \
   .
 

@@ -199,7 +199,7 @@ def test_downloads_identify_themselves_rather_than_using_python_urllib(
         agent = request.get_header("User-agent")
         assert agent, "request carried no User-Agent"
         assert not agent.startswith("Python-urllib")
-        assert agent.startswith("memocat-mcp/")
+        assert agent.startswith("montycat-mcp/")
 
 
 @pytest.mark.asyncio

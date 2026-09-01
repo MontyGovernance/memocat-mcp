@@ -19,6 +19,20 @@ def test_mcpb_manifest_matches_project_and_bundle_files():
     assert (ROOT / manifest["icon"]).is_file()
     assert (ROOT / "PRIVACY.md").is_file()
     assert manifest["privacy_policies"]
+    assert project["project"]["name"] == "montycat-mcp"
+    assert project["project"]["scripts"]["montycat-mcp"] == "memocat_mcp.server:main"
+    assert project["project"]["scripts"]["memocat-mcp"] == "memocat_mcp.server:main"
+
+
+def test_legacy_distribution_tracks_primary_version():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    legacy = tomllib.loads(
+        (ROOT / "compat/memocat-mcp/pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    version = project["project"]["version"]
+    assert legacy["project"]["version"] == version
+    assert legacy["project"]["dependencies"] == [f"montycat-mcp=={version}"]
 
 
 def test_manifest_declares_exactly_the_runtime_tools():

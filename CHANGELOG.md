@@ -1,6 +1,36 @@
-# Changelog
+# Montycat MCP Changelog
 
-All notable changes to MemoCat MCP are documented here.
+All notable changes to Montycat MCP are documented here.
+
+## 0.5.0 — 2026-09-01
+
+### Added
+
+- Rename the product and primary distribution from MemoCat MCP to Montycat MCP.
+  The new package, command, repository, container, Claude plugin, and MCP
+  Registry identity use `montycat-mcp`.
+- Keep the `memocat-mcp` command, Python import path, `memocat_*` tool names,
+  existing environment variables, and Claude Desktop extension identity for
+  backward compatibility.
+- Add GitHub Releases as the primary Claude Desktop MCPB download path.
+- Add automated MCPB validation, packaging, SHA-256 generation, and attachment
+  to published GitHub releases.
+- Add pull-request CI across Python 3.10–3.13, Python distribution checks,
+  isolated wheel and MCPB validation, optional live-engine acceptance tests,
+  token-authenticated PyPI publishing, multi-architecture Docker publishing,
+  and ordered MCP Registry publication.
+
+### Changed
+
+- Clarify the separate installation paths for Claude Desktop, Claude Code and
+  Cowork, and other MCP clients.
+- Improve public documentation and plugin metadata for AI memory, MCP server,
+  semantic search, RAG, and multi-agent discovery.
+
+### Fixed
+
+- Exclude the private MCPB submission packet and build lockfile from the Claude
+  Desktop extension archive.
 
 ## 0.4.3 — 2026-08-28
 
@@ -15,37 +45,26 @@ All notable changes to MemoCat MCP are documented here.
 - Add `memocat_install_engine`, which downloads the Montycat package and opens
   the operating system's installer. Engine installation is no longer something
   that can happen without being asked for.
-- Verify a local installation with `montycat version` before launching it. The
-  CLI ships beside the engine in every packaging and prints a compile-time
-  constant, so it answers while the engine is down. A binary that cannot run —
-  wrong architecture, unresolvable ONNX libraries, no execute bit — is now
-  detected in milliseconds instead of after the full readiness budget, and the
-  reported edition distinguishes a base-edition install from the Semantic one
-  the memory tools require. `MEMOCAT_ENGINE_CLI` overrides its location.
+- Verify a local installation with `montycat version` before launch. MemoCat
+  now detects incompatible architectures, missing runtime libraries, and
+  execution-permission problems immediately, and distinguishes the base and
+  Semantic editions. `MEMOCAT_ENGINE_CLI` can override the CLI location.
 
 ### Changed
 
 - Position MemoCat consistently as vendor-neutral shared AI memory across
   Claude, OpenAI Codex, Cursor, and other MCP-compatible systems; the MCPB is
   the Claude Desktop installation surface, not the boundary of the product.
-- Serve MCP immediately and acquire the engine in the background. Startup
-  previously awaited engine readiness before opening the transport, so a first
-  run that had to install or pull an engine could take minutes — far longer
-  than a client waits to complete `initialize`. Tools now report that the
-  engine is still starting instead of the connection appearing to fail.
-  `MEMOCAT_READY_TIMEOUT` (default 20s) bounds that wait.
-- Never start a local engine for an address on another machine. `MONTYCAT_HOST`
-  can name a remote engine, but the native and Docker tiers only bind locally;
-  they previously started an engine nobody was watching, waited out the full
-  readiness budget twice against an address that could not answer, and left a
-  stray container behind.
+- Serve MCP immediately while acquiring the engine in the background. Tools
+  now report engine startup progress instead of delaying the MCP handshake.
+  `MEMOCAT_READY_TIMEOUT` (default 20 seconds) bounds each tool's wait.
+- Do not start a local engine when `MONTYCAT_HOST` identifies a remote machine.
 
 ### Fixed
 
-- Send an identifying `User-Agent` on release-catalog and artifact requests.
-  Both hosts answer 403 to urllib's default `Python-urllib/x.y`, so installer
-  discovery and every download failed closed and were swallowed into a debug
-  log — leaving machines without Docker unable to obtain an engine at all.
+- Send an identifying `User-Agent` with release-catalog and artifact requests,
+  restoring installer discovery and downloads on hosts that reject urllib's
+  default user agent.
 - Restore saved credentials when reconnecting to a previously managed local
   Montycat engine, so a new Claude Desktop session can use the existing engine.
 - Fall back correctly when a generated extension setting arrives empty rather

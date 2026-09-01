@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "montycat-mcp",
+  "description": "Local-first MCP server for shared, persistent AI agent memory, semantic search, RAG, live updates, and governed keyspaces.",
+  "version": "0.5.0",
+  "author": {
+    "name": "MontyGovernance"
+  },
+  "homepage": "https://github.com/MontyGovernance/montycat-mcp",
+  "repository": "https://github.com/MontyGovernance/montycat-mcp",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "ai-memory",
+    "persistent-memory",
+    "multi-agent",
+    "mcp",
+    "rag",
+    "semantic-search"
+  ]
+}

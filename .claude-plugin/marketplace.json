@@ -7,21 +7,41 @@
   },
   "plugins": [
     {
-      "name": "memocat-mcp",
-      "source": "./plugins/memocat-mcp",
-      "description": "Shared, persistent memory across Claude conversations and AI agents, with semantic recall and live updates.",
+      "name": "montycat-mcp",
+      "source": "./plugins/montycat-mcp",
+      "description": "Local-first MCP server for shared, persistent AI agent memory, semantic search, RAG, and live updates.",
       "author": {
         "name": "MontyGovernance"
       },
-      "homepage": "https://github.com/MontyGovernance/memocat-mcp",
-      "repository": "https://github.com/MontyGovernance/memocat-mcp",
+      "homepage": "https://github.com/MontyGovernance/montycat-mcp",
+      "repository": "https://github.com/MontyGovernance/montycat-mcp",
+      "license": "MIT",
+      "category": "productivity",
+      "tags": [
+        "memory",
+        "ai-memory",
+        "persistent-memory",
+        "multi-agent",
+        "mcp",
+        "rag",
+        "semantic-search"
+      ]
+    },
+    {
+      "name": "memocat-mcp",
+      "source": "./plugins/memocat-mcp",
+      "description": "Compatibility plugin for Montycat MCP. Existing MemoCat installations continue to work; new installations should use montycat-mcp.",
+      "author": {
+        "name": "MontyGovernance"
+      },
+      "homepage": "https://github.com/MontyGovernance/montycat-mcp",
+      "repository": "https://github.com/MontyGovernance/montycat-mcp",
       "license": "MIT",
       "category": "productivity",
       "tags": [
         "memory",
         "mcp",
-        "rag",
-        "semantic-search"
+        "compatibility"
       ]
     }
   ]

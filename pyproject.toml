@@ -1,6 +1,6 @@
 [project]
-name = "memocat-mcp"
-version = "0.4.3"
+name = "montycat-mcp"
+version = "0.5.0"
 description = "Shared, persistent memory across AI agents and systems through MCP."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -64,19 +64,20 @@ dependencies = [
     # push support — see memocat_mcp/watch.py and server.py `_run_stdio`.
     "mcp[cli]>=1.2.0,<2",
     # 1.2.2 adds query/write vectors, external-vector enrollment, semantic
-    # status, and re-embedding; MemoCat exposes all of those surfaces.
+    # status, and re-embedding; Montycat MCP exposes all of those surfaces.
     "montycat>=1.2.2,<2",
 ]
 
 [project.scripts]
+montycat-mcp = "memocat_mcp.server:main"
 memocat-mcp = "memocat_mcp.server:main"
 
 [project.urls]
 Homepage = "https://montygovernance.com"
 Documentation = "https://montygovernance.com/docs"
-Repository = "https://github.com/MontyGovernance/memocat-mcp"
-Issues = "https://github.com/MontyGovernance/memocat-mcp/issues"
-Changelog = "https://github.com/MontyGovernance/memocat-mcp/blob/master/CHANGELOG.md"
+Repository = "https://github.com/MontyGovernance/montycat-mcp"
+Issues = "https://github.com/MontyGovernance/montycat-mcp/issues"
+Changelog = "https://github.com/MontyGovernance/montycat-mcp/blob/master/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]

@@ -21,3 +21,9 @@ build_mcpb.sh
 server.json
 CLAUDE_DIRECTORY_PLAN.md
 MCPB_DIRECTORY_PLAN.md
+MCPB_SUBMISSION.md
+uv.lock
+compat/
+.claude-plugin/
+plugins/
+logo.png

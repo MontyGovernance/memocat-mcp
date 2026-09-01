@@ -84,7 +84,7 @@ from montycat import (
 
 from .watch import registry as watch_registry
 
-SERVER_INSTRUCTIONS = """MemoCat is shared, persistent memory for AI agents and
+SERVER_INSTRUCTIONS = """Montycat MCP is shared, persistent memory for AI agents and
 systems. Search it for relevant prior context before asking the user to repeat
 information. Remember durable preferences, facts, and decisions when the user
 asks or when they will clearly be useful in a later conversation; update stale
@@ -94,7 +94,7 @@ clients to connect to the same Montycat engine and keyspace—separate local
 engines do not synchronize. Do not store secrets or full conversation
 transcripts by default."""
 
-mcp = FastMCP("memocat", instructions=SERVER_INSTRUCTIONS)
+mcp = FastMCP("montycat", instructions=SERVER_INSTRUCTIONS)
 
 # Safety metadata returned by MCP tools/list. MCP hosts can use these hints to
 # explain and confirm read, write, and destructive operations.
@@ -735,7 +735,7 @@ async def memocat_install_engine() -> Any:
     documented APT installation with `sudo`.
 
     Refuses when MONTYCAT_URI is set or the configured host is not this
-    machine — MemoCat is pointed at an engine elsewhere, and installing a local
+    machine — Montycat MCP is pointed at an engine elsewhere, and installing a local
     one would create a second database and write memories where nobody is
     looking. Does nothing if an engine is already reachable.
 
@@ -989,7 +989,7 @@ async def memocat_remove_keyspace(
 ) -> Any:
     """Permanently remove a memory namespace using the owner's authority.
 
-    This is a destructive lifecycle operation. Before removal MemoCat closes
+    This is a destructive lifecycle operation. Before removal Montycat MCP closes
     the keyspace's live watch and releases MCP resource-subscription ownership
     so the engine cannot deadlock on a lingering subscriber. The engine then
     enforces `remove-keyspace`, creator authority, and explicit denials.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import struct
+import tomllib
 from pathlib import Path
 
 
@@ -28,11 +29,39 @@ def png_shape(path: Path) -> tuple[int, int, int]:
 
 def main() -> None:
     manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-    expected = project_version()
-    if manifest.get("version") != expected:
-        raise SystemExit(
-            f"manifest version {manifest.get('version')!r} != project version {expected!r}"
+    registry = json.loads((ROOT / "server.json").read_text(encoding="utf-8"))
+    primary_plugin = json.loads(
+        (ROOT / "plugins/montycat-mcp/.claude-plugin/plugin.json").read_text(
+            encoding="utf-8"
         )
+    )
+    legacy_plugin = json.loads(
+        (ROOT / "plugins/memocat-mcp/.claude-plugin/plugin.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    legacy_project = tomllib.loads(
+        (ROOT / "compat/memocat-mcp/pyproject.toml").read_text(encoding="utf-8")
+    )
+    expected = project_version()
+    versions = {
+        "manifest.json": manifest.get("version"),
+        "server.json": registry.get("version"),
+        "primary Claude plugin": primary_plugin.get("version"),
+        "legacy Claude plugin": legacy_plugin.get("version"),
+        "legacy PyPI package": legacy_project["project"].get("version"),
+    }
+    mismatches = {name: value for name, value in versions.items() if value != expected}
+    if mismatches:
+        raise SystemExit(f"release versions do not match {expected}: {mismatches}")
+
+    if registry.get("name") != "io.github.MontyGovernance/montycat-mcp":
+        raise SystemExit("server.json does not use the Montycat MCP registry identity")
+    if primary_plugin.get("name") != "montycat-mcp":
+        raise SystemExit("primary Claude plugin is not named montycat-mcp")
+    dependency = f"montycat-mcp=={expected}"
+    if dependency not in legacy_project["project"].get("dependencies", []):
+        raise SystemExit(f"legacy PyPI package must depend on {dependency}")
 
     icon = ROOT / manifest["icon"]
     width, height, color_type = png_shape(icon)

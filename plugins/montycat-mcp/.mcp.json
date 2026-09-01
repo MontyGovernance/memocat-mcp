@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "memocat": {
+    "montycat": {
       "command": "uvx",
       "args": [
         "--from",
