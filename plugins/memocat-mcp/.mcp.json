@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "memocat": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "memocat-mcp==0.4.3",
+        "memocat-mcp"
+      ],
+      "env": {
+        "MONTYCAT_URI": "${MONTYCAT_URI:-}",
+        "MONTYCAT_TLS": "${MONTYCAT_TLS:-false}",
+        "MONTYCAT_DEFAULT_KEYSPACE": "${MONTYCAT_DEFAULT_KEYSPACE:-memory}",
+        "MEMOCAT_AUTOSTART": "${MEMOCAT_AUTOSTART:-auto}"
+      }
+    }
+  }
+}

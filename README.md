@@ -45,6 +45,24 @@ model-specific plugin or another standalone vector database.
 
 ## Install MemoCat MCP
 
+### Claude Code and Cowork plugin
+
+Add the Monty Governance marketplace and install MemoCat from inside Claude
+Code:
+
+```text
+/plugin marketplace add MontyGovernance/memocat-mcp
+/plugin install memocat-mcp@montygovernance
+```
+
+The plugin runs the published Python package through `uvx`. Install
+[`uv`](https://docs.astral.sh/uv/getting-started/installation/) first, then use
+`/mcp` after installation to confirm that the `memocat` server connected. See
+the [plugin setup guide](plugins/memocat-mcp/README.md) for engine configuration
+and security notes.
+
+### Other MCP clients
+
 The fastest option is [`uvx`](https://docs.astral.sh/uv/guides/tools/), which
 runs the latest published package in an isolated environment:
 

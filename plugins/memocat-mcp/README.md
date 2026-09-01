@@ -1,0 +1,47 @@
+# MemoCat MCP for Claude
+
+This plugin connects Claude Code and Claude Cowork to MemoCat: shared,
+persistent memory with semantic recall, live change notifications, and governed
+keyspaces backed by Montycat.
+
+## Prerequisite
+
+MemoCat is a Python MCP server. Install `uv`, which provides the `uvx` command
+used by this plugin:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Restart Claude after installing `uv` so the application receives the updated
+`PATH`.
+
+## Engine configuration
+
+By default, MemoCat discovers or starts a supported local Montycat Semantic
+engine. Docker may be used when no supported native engine is available.
+
+To connect to an existing engine, set these variables before starting Claude:
+
+```bash
+export MONTYCAT_URI="montycat://user:password@host:21210/store"
+export MONTYCAT_TLS="true"
+```
+
+Do not commit a URI containing credentials. Use a least-privilege delegated
+owner for shared or remote engines.
+
+After installation, run `/mcp` and confirm that `memocat` is connected. If it
+is not, verify that `uvx` is available in the environment used to launch
+Claude.
+
+## Engine installation permission
+
+The `memocat_install_engine` tool can download an operating-system package and
+open the installer. The installer may request administrator approval. MemoCat
+only performs this operation when that tool is explicitly invoked; ordinary
+memory operations do not silently open an installer.
+
+Memory records and embeddings remain in the configured Montycat engine until
+they are explicitly deleted. Removing this plugin does not delete that data.
+See the full [privacy policy](https://github.com/MontyGovernance/memocat-mcp/blob/master/PRIVACY.md).
