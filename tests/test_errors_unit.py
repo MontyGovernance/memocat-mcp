@@ -137,11 +137,15 @@ async def test_missing_keyspace_without_auto_provision_is_explicit(server, monke
 
 @pytest.mark.asyncio
 async def test_failed_explicit_creation_does_not_poison_keyspace_type_cache(server, monkeypatch):
+    async def engine_ready():
+        return None
+
     class FailingKeyspace:
         async def create_keyspace(self, **_kwargs):
             return "Error: permission denied"
 
     server._ks_type_cache.clear()
+    monkeypatch.setattr(server, "_engine_ready", engine_ready)
     monkeypatch.setattr(server, "_keyspace", lambda *_args, **_kwargs: FailingKeyspace())
 
     result = await server.memocat_create_keyspace(keyspace="private", persistent=False)
@@ -156,6 +160,9 @@ async def test_create_keyspace_prefers_storage_and_keeps_persistent_compatibilit
 ):
     calls = []
 
+    async def engine_ready():
+        return None
+
     class FakeKeyspace:
         async def create_keyspace(self, **kwargs):
             calls.append(kwargs)
@@ -166,6 +173,7 @@ async def test_create_keyspace_prefers_storage_and_keeps_persistent_compatibilit
         return FakeKeyspace()
 
     server._ks_type_cache.clear()
+    monkeypatch.setattr(server, "_engine_ready", engine_ready)
     monkeypatch.setattr(server, "_keyspace", fake_keyspace)
 
     result = await server.memocat_create_keyspace(
