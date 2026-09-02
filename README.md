@@ -1,4 +1,4 @@
-# Montycat MCP Server — Shared, Persistent Memory for AI Agents
+# Montycat MCP Server — Shared, Persistent Memory for AI Agents 
 
 <!-- mcp-name: io.github.MontyGovernance/montycat-mcp -->
 
