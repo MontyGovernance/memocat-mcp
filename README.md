@@ -152,11 +152,12 @@ uvx montycat-mcp
 | `montycat_await_memory_change` | **Wait for memory to change** — returns the moment another agent or session writes. Live subscription, not polling. |
 | `montycat_install_engine` | Install the Montycat engine on this computer and start it. Opens your OS installer and asks for an administrator password, so it only ever runs when you ask for it. |
 
-Routine non-deleting memory writes and configuration changes do not request a
-separate MCP confirmation. Delete, rebuild, vector-dropping, and snapshot
-cleanup tools remain approval-required. Engine installation also always
-requires explicit confirmation because it downloads software and opens the
-operating system installer.
+Montycat MCP truthfully identifies routine writes and configuration changes as
+non-destructive mutations. Your MCP client decides whether those operations
+require confirmation according to its permission settings. Delete, rebuild,
+vector-dropping, and snapshot-cleanup tools are marked destructive. Engine
+installation is also marked destructive and open-world because it downloads
+software and opens the operating system installer.
 
 ## Real-time memory watch
 

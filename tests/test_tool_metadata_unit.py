@@ -27,7 +27,7 @@ DESTRUCTIVE = {
     "montycat_install_engine",
 }
 
-NO_CONFIRM_MUTATING = {
+NON_DESTRUCTIVE_MUTATING = {
     "montycat_remember",
     "montycat_remember_bulk",
     "montycat_update",
@@ -42,7 +42,7 @@ NO_CONFIRM_MUTATING = {
 @pytest.mark.asyncio
 async def test_all_tools_have_directory_metadata():
     tools = {tool.name: tool for tool in await mcp.list_tools()}
-    assert set(tools) == READ_ONLY | NO_CONFIRM_MUTATING | DESTRUCTIVE
+    assert set(tools) == READ_ONLY | NON_DESTRUCTIVE_MUTATING | DESTRUCTIVE
     assert len(tools) == 23
 
     for name, tool in tools.items():
@@ -57,8 +57,8 @@ async def test_all_tools_have_directory_metadata():
         assert tools[name].annotations.readOnlyHint is True
         assert tools[name].annotations.destructiveHint is False
 
-    for name in NO_CONFIRM_MUTATING:
-        assert tools[name].annotations.readOnlyHint is True
+    for name in NON_DESTRUCTIVE_MUTATING:
+        assert tools[name].annotations.readOnlyHint is False
         assert tools[name].annotations.destructiveHint is False
 
     for name in DESTRUCTIVE:

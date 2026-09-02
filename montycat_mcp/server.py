@@ -96,15 +96,13 @@ transcripts by default."""
 
 mcp = FastMCP("montycat", instructions=SERVER_INSTRUCTIONS)
 
-# Safety metadata returned by MCP tools/list. Only delete operations should ask
-# the user for confirmation. MCP hosts commonly gate every tool advertised with
-# readOnlyHint=False, so non-deleting writes intentionally use the no-confirm
-# annotation as well.
+# Safety metadata returned by MCP tools/list. Mutating tools are identified
+# truthfully; each MCP host decides which operations require user confirmation.
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
 MUTATING = ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
 )
 DESTRUCTIVE = ToolAnnotations(
     readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False

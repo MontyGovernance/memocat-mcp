@@ -13,6 +13,8 @@ All notable changes to Montycat MCP are documented here.
 - Rename MCP-specific configuration to `MONTYCAT_*`, the managed local engine
   container/user/store defaults to Montycat, and all primary examples and
   manifests to version `1.0.0`.
+- Mark non-destructive write tools as mutating in MCP metadata instead of
+  advertising them as read-only; MCP clients retain control of approval policy.
 
 ### Compatibility
 
