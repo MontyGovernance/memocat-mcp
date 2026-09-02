@@ -2,40 +2,40 @@
 
 import pytest
 
-from memocat_mcp.server import SERVER_INSTRUCTIONS, mcp
+from montycat_mcp.server import SERVER_INSTRUCTIONS, mcp
 
 
 READ_ONLY = {
-    "memocat_semantic_search",
-    "memocat_recall",
-    "memocat_list_memories",
-    "memocat_list_keyspaces",
-    "memocat_semantic_status",
-    "memocat_policy_view",
-    "memocat_policy_history",
-    "memocat_policy_explain",
-    "memocat_await_memory_change",
+    "montycat_semantic_search",
+    "montycat_recall",
+    "montycat_list_memories",
+    "montycat_list_keyspaces",
+    "montycat_semantic_status",
+    "montycat_policy_view",
+    "montycat_policy_history",
+    "montycat_policy_explain",
+    "montycat_await_memory_change",
 }
 
 DESTRUCTIVE = {
-    "memocat_forget",
-    "memocat_remove_keyspace",
-    "memocat_clean_snapshots",
-    "memocat_reembed_semantic",
-    "memocat_disable_semantic",
+    "montycat_forget",
+    "montycat_remove_keyspace",
+    "montycat_clean_snapshots",
+    "montycat_reembed_semantic",
+    "montycat_disable_semantic",
     # Installs system-wide software behind an administrator prompt.
-    "memocat_install_engine",
+    "montycat_install_engine",
 }
 
 NO_CONFIRM_MUTATING = {
-    "memocat_remember",
-    "memocat_remember_bulk",
-    "memocat_update",
-    "memocat_create_keyspace",
-    "memocat_enable_semantic",
-    "memocat_enable_external_vectors",
-    "memocat_start_snapshots",
-    "memocat_stop_snapshots",
+    "montycat_remember",
+    "montycat_remember_bulk",
+    "montycat_update",
+    "montycat_create_keyspace",
+    "montycat_enable_semantic",
+    "montycat_enable_external_vectors",
+    "montycat_start_snapshots",
+    "montycat_stop_snapshots",
 }
 
 

@@ -50,7 +50,7 @@ Claude.
 
 ## Engine installation permission
 
-The `memocat_install_engine` tool can download an operating-system package and
+The `montycat_install_engine` tool can download an operating-system package and
 open the installer. The installer may request administrator approval. Montycat
 MCP only performs this operation when that tool is explicitly invoked; ordinary
 memory operations do not silently open an installer.

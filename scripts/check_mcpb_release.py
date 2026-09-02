@@ -74,6 +74,8 @@ def main() -> None:
 
     if registry.get("name") != "io.github.MontyGovernance/montycat-mcp":
         raise SystemExit("server.json does not use the Montycat MCP registry identity")
+    if manifest.get("name") != "io.github.montygovernance.montycat-mcp":
+        raise SystemExit("manifest.json does not use the Montycat MCP identity")
     if primary_plugin.get("name") != "montycat-mcp":
         raise SystemExit("primary Claude plugin is not named montycat-mcp")
     dependency = f"montycat-mcp=={expected}"

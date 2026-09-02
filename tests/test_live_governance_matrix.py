@@ -35,7 +35,7 @@ class GovernanceHarness:
         self.keyspaces: dict[str, bool] = {}
 
     def unique(self, kind: str) -> str:
-        return f"memocat_t_{kind}_{uuid.uuid4().hex[:10]}"
+        return f"montycat_t_{kind}_{uuid.uuid4().hex[:10]}"
 
     async def owner(self, kind: str = "owner") -> tuple[str, Engine]:
         username = self.unique(kind)
@@ -81,7 +81,7 @@ class GovernanceHarness:
 
     async def create_as_admin(self, name: str, persistent: bool = True):
         self.use(self.admin)
-        result = await self.server.memocat_create_keyspace(
+        result = await self.server.montycat_create_keyspace(
             keyspace=name,
             storage="persistent" if persistent else "inmemory",
         )
@@ -90,7 +90,7 @@ class GovernanceHarness:
         return self.admin_keyspace(name, persistent)
 
     async def cleanup(self):
-        from memocat_mcp.watch import registry
+        from montycat_mcp.watch import registry
 
         await registry.stop_all()
         self.use(self.admin)
@@ -124,24 +124,24 @@ async def test_matrix_01_02_06_07_17_creator_lifecycle_and_policy_view(governanc
     g.use(owner)
 
     persistent = g.unique("persistent")
-    remembered = await g.server.memocat_remember(
+    remembered = await g.server.montycat_remember(
         keyspace=persistent, value={"text": "creator can write"}
     )
     assert remembered.get("status") is True, remembered
     g.keyspaces[persistent] = True
-    recalled = await g.server.memocat_recall(
+    recalled = await g.server.montycat_recall(
         keyspace=persistent, key=str(payload(remembered))
     )
     assert recalled.get("status") is True, recalled
 
     inmemory = g.unique("inmemory")
-    created = await g.server.memocat_create_keyspace(
+    created = await g.server.montycat_create_keyspace(
         keyspace=inmemory, storage="inmemory"
     )
     assert created.get("status") is True, created
     g.keyspaces[inmemory] = False
 
-    view = await g.server.memocat_policy_view()
+    view = await g.server.montycat_policy_view()
     owned = {item["keyspace"]: item for item in payload(view)["owned_keyspaces"]}
     assert persistent in owned and inmemory in owned
     assert {"read", "write", "remove-keyspace", "manage-semantic"}.issubset(
@@ -149,7 +149,7 @@ async def test_matrix_01_02_06_07_17_creator_lifecycle_and_policy_view(governanc
     )
     assert "manage-snapshots" in owned[inmemory]["effective_creator_capabilities"]
 
-    removed = await g.server.memocat_remove_keyspace(keyspace=inmemory)
+    removed = await g.server.montycat_remove_keyspace(keyspace=inmemory)
     assert removed.get("status") is True, removed
     g.keyspaces.pop(inmemory)
 
@@ -160,7 +160,7 @@ async def test_matrix_03_disallowed_keyspace_type_is_rejected(governance):
     await g.grant_provision(username, types=[PolicyKeyspaceType.IN_MEMORY])
     g.use(owner)
 
-    result = await g.server.memocat_create_keyspace(
+    result = await g.server.montycat_create_keyspace(
         keyspace=g.unique("denied_persistent"), storage="persistent"
     )
     assert result.get("status") is False, result
@@ -178,20 +178,20 @@ async def test_matrix_04_05_semantic_model_constraints(governance):
     )
     g.use(owner)
     name = g.unique("models")
-    created = await g.server.memocat_create_keyspace(
+    created = await g.server.montycat_create_keyspace(
         keyspace=name, storage="persistent"
     )
     assert created.get("status") is True, created
     g.keyspaces[name] = True
 
-    denied = await g.server.memocat_enable_semantic(
+    denied = await g.server.montycat_enable_semantic(
         keyspace=name, semantic_model="bge-base"
     )
     assert denied.get("status") is False, denied
     assert "Governance permission denied" in denied.get("error", "")
     assert "manage-semantic" in denied.get("error", "")
 
-    allowed = await g.server.memocat_enable_semantic(
+    allowed = await g.server.montycat_enable_semantic(
         keyspace=name, semantic_model="bge-small"
     )
     assert allowed.get("status") is True, allowed
@@ -207,7 +207,7 @@ async def test_matrix_08_09_explicit_creator_denials(governance):
     )
     g.use(owner)
     name = g.unique("denials")
-    created = await g.server.memocat_create_keyspace(
+    created = await g.server.montycat_create_keyspace(
         keyspace=name, storage="persistent"
     )
     assert created.get("status") is True, created
@@ -225,13 +225,13 @@ async def test_matrix_08_09_explicit_creator_denials(governance):
         )
         assert denied.get("status") is True, denied
 
-    semantic = await g.server.memocat_enable_semantic(
+    semantic = await g.server.montycat_enable_semantic(
         keyspace=name, semantic_model="bge-small"
     )
     assert semantic.get("status") is False, semantic
     assert "Governance permission denied" in semantic.get("error", "")
     assert "manage-semantic" in semantic.get("error", "")
-    removed = await g.server.memocat_remove_keyspace(keyspace=name)
+    removed = await g.server.montycat_remove_keyspace(keyspace=name)
     assert removed.get("status") is False, removed
     assert "Governance permission denied" in removed.get("error", "")
     assert "remove-keyspace" in removed.get("error", "")
@@ -247,7 +247,7 @@ async def test_creator_authority_revoke_restore_and_resource_lifecycle(governanc
     )
     g.use(owner)
     name = g.unique("creator_revoke")
-    created = await g.server.memocat_create_keyspace(keyspace=name, storage="inmemory")
+    created = await g.server.montycat_create_keyspace(keyspace=name, storage="inmemory")
     assert created.get("status") is True, created
     g.keyspaces[name] = False
 
@@ -298,7 +298,7 @@ async def test_creator_authority_revoke_restore_and_resource_lifecycle(governanc
     g.keyspaces.pop(name)
 
     g.use(owner)
-    recreated = await g.server.memocat_create_keyspace(keyspace=name, storage="inmemory")
+    recreated = await g.server.montycat_create_keyspace(keyspace=name, storage="inmemory")
     assert recreated.get("status") is True, recreated
     g.keyspaces[name] = False
     reset = await owner.policy_explain(
@@ -323,23 +323,23 @@ async def test_matrix_10_11_12_13_14_cross_owner_isolation(
     )
     g.use(owner_a)
     name = g.unique("private")
-    written = await g.server.memocat_remember(
+    written = await g.server.montycat_remember(
         keyspace=name, value={"text": "owner A only"}
     )
     assert written.get("status") is True, written
     g.keyspaces[name] = True
 
     g.use(owner_b)
-    read = await g.server.memocat_recall(
+    read = await g.server.montycat_recall(
         keyspace=name, key=str(payload(written))
     )
     assert read.get("status") is False, read
-    write = await g.server.memocat_remember(
+    write = await g.server.montycat_remember(
         keyspace=name, value={"text": "intrusion"}
     )
     assert write.get("status") is False, write
 
-    listed = await g.server.memocat_list_keyspaces()
+    listed = await g.server.montycat_list_keyspaces()
     assert name not in str(payload(listed))
 
     resource = await g.server.memory_resource(name)
@@ -347,13 +347,13 @@ async def test_matrix_10_11_12_13_14_cross_owner_isolation(
 
     monkeypatch.setattr(g.server, "_request_session", lambda: object())
     with pytest.raises((g.server.KeyspaceBindingError, PermissionError)):
-        await g.server._subscribe_resource(f"memocat://memory/{name}")
+        await g.server._subscribe_resource(f"montycat://memory/{name}")
 
     owner_b_keyspace = type(
         f"OwnerB_{name}", (Keyspace.Persistent,), {"keyspace": name}
     )
     owner_b_keyspace.connect_engine(owner_b)
-    from memocat_mcp.watch import MemoryWatch
+    from montycat_mcp.watch import MemoryWatch
 
     watch = MemoryWatch(name)
     await watch.start(owner_b_keyspace)
@@ -371,7 +371,7 @@ async def test_matrix_18_policy_history_is_owner_scoped(governance):
     await g.grant_provision(owner_b_name, types=[PolicyKeyspaceType.IN_MEMORY])
 
     g.use(owner_a)
-    history = await g.server.memocat_policy_history()
+    history = await g.server.montycat_policy_history()
     text = str(payload(history))
     assert owner_a_name in text
     assert owner_b_name not in text
@@ -383,7 +383,7 @@ async def test_matrix_19_owner_retirement_transfers_keyspaces(governance):
     await g.grant_provision(username, types=[PolicyKeyspaceType.PERSISTENT])
     g.use(owner)
     name = g.unique("retired")
-    created = await g.server.memocat_create_keyspace(
+    created = await g.server.montycat_create_keyspace(
         keyspace=name, storage="persistent"
     )
     assert created.get("status") is True, created
@@ -409,11 +409,11 @@ async def test_matrix_20_legacy_permissions_remain_compatible(governance):
     assert granted.get("status") is True, granted
 
     g.use(owner)
-    written = await g.server.memocat_remember(
+    written = await g.server.montycat_remember(
         keyspace=name, value={"text": "legacy permission"}
     )
     assert written.get("status") is True, written
-    recalled = await g.server.memocat_recall(
+    recalled = await g.server.montycat_recall(
         keyspace=name, key=str(payload(written))
     )
     assert recalled.get("status") is True, recalled
@@ -424,16 +424,16 @@ async def test_matrix_21_superowner_behavior_is_preserved(governance):
     g = governance
     g.use(g.admin)
     name = g.unique("superowner")
-    created = await g.server.memocat_create_keyspace(
+    created = await g.server.montycat_create_keyspace(
         keyspace=name, storage="persistent"
     )
     assert created.get("status") is True, created
     g.keyspaces[name] = True
-    written = await g.server.memocat_remember(
+    written = await g.server.montycat_remember(
         keyspace=name, value={"text": "admin"}
     )
     assert written.get("status") is True, written
-    removed = await g.server.memocat_remove_keyspace(keyspace=name)
+    removed = await g.server.montycat_remove_keyspace(keyspace=name)
     assert removed.get("status") is True, removed
     g.keyspaces.pop(name)
 
@@ -442,7 +442,7 @@ async def test_matrix_22_auto_provision_denial_has_policy_explanation(governance
     g = governance
     _, owner = await g.owner("no_provision")
     g.use(owner)
-    result = await g.server.memocat_remember(
+    result = await g.server.montycat_remember(
         keyspace=g.unique("denied_auto"), value={"text": "cannot create"}
     )
     assert result.get("status") is False, result

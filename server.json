@@ -7,12 +7,12 @@
     "url": "https://github.com/MontyGovernance/montycat-mcp",
     "source": "github"
   },
-  "version": "0.5.1",
+  "version": "1.0.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "montycat-mcp",
-      "version": "0.5.1",
+      "version": "1.0.0",
       "transport": {
         "type": "stdio"
       },
@@ -35,7 +35,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "docker.io/montygovernance/montycat-mcp:0.5.1",
+      "identifier": "docker.io/montygovernance/montycat-mcp:1.0.0",
       "transport": {
         "type": "stdio"
       },

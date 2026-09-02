@@ -3,7 +3,7 @@
 # `docker compose run -T mcp`) and keep Montycat in the companion service.
 FROM python:3.12-slim
 
-ARG VERSION=0.5.1
+ARG VERSION=1.0.0
 ARG VCS_REF=unknown
 
 LABEL org.opencontainers.image.title="Montycat MCP" \
@@ -18,18 +18,19 @@ LABEL org.opencontainers.image.title="Montycat MCP" \
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    MEMOCAT_AUTOSTART=off
+    MONTYCAT_AUTOSTART=off
 
 WORKDIR /app
 
 COPY pyproject.toml README.md LICENSE ./
+COPY montycat_mcp ./montycat_mcp
 COPY memocat_mcp ./memocat_mcp
 
 RUN pip install --no-cache-dir .
 
-RUN groupadd --system memocat \
-    && useradd --system --gid memocat --home-dir /nonexistent --no-create-home memocat
+RUN groupadd --system montycat \
+    && useradd --system --gid montycat --home-dir /nonexistent --no-create-home montycat
 
-USER memocat
+USER montycat
 
 ENTRYPOINT ["montycat-mcp"]

@@ -33,7 +33,7 @@ async def test_policy_view_uses_authenticated_owner_and_configured_store(
     engine = FakePolicyEngine()
     monkeypatch.setattr(server, "_engine", engine)
 
-    result = await server.memocat_policy_view()
+    result = await server.montycat_policy_view()
 
     assert result["status"] is True
     assert engine.view_call == {"store": "memories"}
@@ -45,7 +45,7 @@ async def test_policy_view_accepts_explicit_store(server, monkeypatch):
     engine = FakePolicyEngine()
     monkeypatch.setattr(server, "_engine", engine)
 
-    await server.memocat_policy_view(store="research")
+    await server.montycat_policy_view(store="research")
 
     assert engine.view_call == {"store": "research"}
 
@@ -55,7 +55,7 @@ async def test_policy_history_is_owner_scoped_and_filterable(server, monkeypatch
     engine = FakePolicyEngine()
     monkeypatch.setattr(server, "_engine", engine)
 
-    result = await server.memocat_policy_history(keyspace="agent-memory")
+    result = await server.montycat_policy_history(keyspace="agent-memory")
 
     assert result["status"] is True
     assert engine.history_call == {
@@ -72,7 +72,7 @@ async def test_policy_history_requires_store_for_keyspace_filter(server, monkeyp
     monkeypatch.setattr(server, "_engine", engine)
 
     with pytest.raises(ValueError, match="store is required"):
-        await server.memocat_policy_history(keyspace="agent-memory")
+        await server.montycat_policy_history(keyspace="agent-memory")
 
 
 @pytest.mark.asyncio
@@ -82,7 +82,7 @@ async def test_policy_explain_converts_public_values_to_sdk_enums(
     engine = FakePolicyEngine()
     monkeypatch.setattr(server, "_engine", engine)
 
-    result = await server.memocat_policy_explain(
+    result = await server.montycat_policy_explain(
         capability="provision-keyspace",
         keyspace="agent-memory",
         storage="persistent",
@@ -107,13 +107,13 @@ async def test_policy_explain_rejects_invalid_values_before_engine(
     monkeypatch.setattr(server, "_engine", engine)
 
     with pytest.raises(ValueError, match="capability must be one of"):
-        await server.memocat_policy_explain(capability="read")
+        await server.montycat_policy_explain(capability="read")
     with pytest.raises(ValueError, match="storage must be one of"):
-        await server.memocat_policy_explain(
+        await server.montycat_policy_explain(
             capability="provision-keyspace", storage="disk"
         )
     with pytest.raises(ValueError, match="semantic_model must be one of"):
-        await server.memocat_policy_explain(
+        await server.montycat_policy_explain(
             capability="manage-semantic", semantic_model="giant"
         )
 
@@ -127,7 +127,7 @@ async def test_policy_explain_requires_a_store(server, monkeypatch):
     monkeypatch.setattr(server, "_engine", engine)
 
     with pytest.raises(ValueError, match="store is required"):
-        await server.memocat_policy_explain(capability="manage-snapshots")
+        await server.montycat_policy_explain(capability="manage-snapshots")
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ async def test_auto_provision_failure_includes_policy_explanation(server, monkey
     )
     server._ks_type_cache.clear()
 
-    result = await server.memocat_remember(
+    result = await server.montycat_remember(
         value={"text": "remember me"}, scope="agent"
     )
 
@@ -195,7 +195,7 @@ async def test_auto_provision_keeps_original_error_when_explanation_fails(
     )
     server._ks_type_cache.clear()
 
-    result = await server.memocat_remember(
+    result = await server.montycat_remember(
         value={"text": "remember me"}, scope="agent"
     )
 

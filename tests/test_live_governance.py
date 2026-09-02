@@ -16,8 +16,8 @@ pytestmark = [pytest.mark.asyncio, requires_engine]
 async def test_superowner_creates_missing_store_with_first_keyspace(server):
     """create-keyspace is also the intentional store bootstrap operation."""
     admin = server._get_engine()
-    store = f"memocat_store_{uuid.uuid4().hex[:10]}"
-    keyspace = f"memocat_first_{uuid.uuid4().hex[:10]}"
+    store = f"montycat_store_{uuid.uuid4().hex[:10]}"
+    keyspace = f"montycat_first_{uuid.uuid4().hex[:10]}"
     scoped = Engine(
         host=admin.host,
         port=admin.port,
@@ -32,7 +32,7 @@ async def test_superowner_creates_missing_store_with_first_keyspace(server):
         server._keyspaces.clear()
         server._ks_type_cache.clear()
 
-        created = await server.memocat_create_keyspace(
+        created = await server.montycat_create_keyspace(
             keyspace=keyspace,
             storage="persistent",
             semantic=False,
@@ -44,12 +44,12 @@ async def test_superowner_creates_missing_store_with_first_keyspace(server):
         visible = structure.get("payload", {}).get("structure", {})
         assert keyspace in visible[store]["persistent"], visible
 
-        written = await server.memocat_remember(
+        written = await server.montycat_remember(
             keyspace=keyspace,
             value={"text": "store and keyspace were provisioned together"},
         )
         assert written.get("status") is True, written
-        recalled = await server.memocat_recall(
+        recalled = await server.montycat_recall(
             keyspace=keyspace,
             key=str(written.get("payload")),
         )
@@ -62,60 +62,60 @@ async def test_superowner_creates_missing_store_with_first_keyspace(server):
 
 
 async def test_keyspace_scoped_semantic_lifecycle(server):
-    name = f"memocat_t_semantic_{uuid.uuid4().hex[:10]}"
+    name = f"montycat_t_semantic_{uuid.uuid4().hex[:10]}"
 
-    created = await server.memocat_create_keyspace(
+    created = await server.montycat_create_keyspace(
         keyspace=name, storage="persistent"
     )
     assert created.get("status") is True
 
     try:
-        enabled = await server.memocat_enable_semantic(
+        enabled = await server.montycat_enable_semantic(
             keyspace=name, semantic_model="bge-small"
         )
         assert enabled.get("status") is True, enabled
 
-        disabled = await server.memocat_disable_semantic(
+        disabled = await server.montycat_disable_semantic(
             keyspace=name, drop_vectors=False
         )
         assert disabled.get("status") is True, disabled
     finally:
-        removed = await server.memocat_remove_keyspace(keyspace=name)
+        removed = await server.montycat_remove_keyspace(keyspace=name)
         assert removed.get("status") is True, removed
 
 
 async def test_keyspace_scoped_snapshot_lifecycle_or_configuration_error(server):
-    name = f"memocat_t_snapshot_{uuid.uuid4().hex[:10]}"
+    name = f"montycat_t_snapshot_{uuid.uuid4().hex[:10]}"
 
-    created = await server.memocat_create_keyspace(
+    created = await server.montycat_create_keyspace(
         keyspace=name, storage="inmemory"
     )
     assert created.get("status") is True
 
     try:
-        started = await server.memocat_start_snapshots(keyspace=name)
+        started = await server.montycat_start_snapshots(keyspace=name)
         if started.get("status") is False:
             assert started.get("error") == "Snapshot rate is not set", started
         else:
-            stopped = await server.memocat_stop_snapshots(keyspace=name)
+            stopped = await server.montycat_stop_snapshots(keyspace=name)
             assert stopped.get("status") is True, stopped
 
-            cleaned = await server.memocat_clean_snapshots(keyspace=name)
+            cleaned = await server.montycat_clean_snapshots(keyspace=name)
             assert cleaned.get("status") is True, cleaned
     finally:
-        removed = await server.memocat_remove_keyspace(keyspace=name)
+        removed = await server.montycat_remove_keyspace(keyspace=name)
         assert removed.get("status") is True, removed
 
 
 async def test_read_revocation_closes_watch_and_purges_buffer(server, monkeypatch):
-    """The engine authorizes subscriptions only when they open. MemoCat's
+    """The engine authorizes subscriptions only when they open. Montycat's
     lease must catch a later revoke and make already-buffered data unreplayable.
     """
-    from memocat_mcp.watch import registry
+    from montycat_mcp.watch import registry
 
     admin = server._get_engine()
-    name = f"memocat_t_revoke_{uuid.uuid4().hex[:10]}"
-    owner = f"memocat_owner_{uuid.uuid4().hex[:10]}"
+    name = f"montycat_t_revoke_{uuid.uuid4().hex[:10]}"
+    owner = f"montycat_owner_{uuid.uuid4().hex[:10]}"
     password = uuid.uuid4().hex
     admin_keyspace = server._keyspace(name, persistent=True)
 
@@ -123,7 +123,7 @@ async def test_read_revocation_closes_watch_and_purges_buffer(server, monkeypatc
 
     created_owner = await admin.create_owner(owner, password)
     assert created_owner.get("status") is True, created_owner
-    created_keyspace = await server.memocat_create_keyspace(
+    created_keyspace = await server.montycat_create_keyspace(
         keyspace=name, storage="persistent"
     )
     assert created_keyspace.get("status") is True, created_keyspace
@@ -144,7 +144,7 @@ async def test_read_revocation_closes_watch_and_purges_buffer(server, monkeypatc
         server._keyspaces.clear()
         server._ks_type_cache.clear()
 
-        opened = await server.memocat_await_memory_change(
+        opened = await server.montycat_await_memory_change(
             keyspace=name, timeout_sec=1
         )
         assert opened.get("status") is True, opened
@@ -170,7 +170,7 @@ async def test_read_revocation_closes_watch_and_purges_buffer(server, monkeypatc
         assert list(watch.changes) == []
         assert watch.running is False
 
-        replay = await server.memocat_await_memory_change(
+        replay = await server.montycat_await_memory_change(
             keyspace=name, timeout_sec=1, since_seq=0
         )
         assert replay.get("status") is False

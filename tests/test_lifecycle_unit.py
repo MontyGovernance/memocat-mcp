@@ -33,7 +33,7 @@ async def test_remove_keyspace_stops_watch_releases_resources_and_clears_caches(
     server, monkeypatch
 ):
     name = "mem_agent"
-    uri = f"memocat://memory/{name}"
+    uri = f"montycat://memory/{name}"
     removable = RemovableKeyspace(
         {"status": True, "payload": "removed", "error": None}
     )
@@ -51,7 +51,7 @@ async def test_remove_keyspace_stops_watch_releases_resources_and_clears_caches(
     server._keyspaces[(name, True)] = object()
     server._keyspaces[(name, False)] = object()
 
-    result = await server.memocat_remove_keyspace(scope="agent")
+    result = await server.montycat_remove_keyspace(scope="agent")
 
     assert result["status"] is True
     stop.assert_awaited_once_with(name)
@@ -67,7 +67,7 @@ async def test_failed_removal_keeps_binding_caches_but_still_releases_watch(
     server, monkeypatch
 ):
     name = "protected"
-    uri = f"memocat://memory/{name}"
+    uri = f"montycat://memory/{name}"
     removable = RemovableKeyspace(
         {"status": False, "payload": None, "error": "explicit denial"}
     )
@@ -87,7 +87,7 @@ async def test_failed_removal_keeps_binding_caches_but_still_releases_watch(
     server._keyspaces[(name, True)] = persistent_binding
     server._keyspaces[(name, False)] = inmemory_binding
 
-    result = await server.memocat_remove_keyspace(keyspace=name)
+    result = await server.montycat_remove_keyspace(keyspace=name)
 
     assert result["status"] is False
     assert "explicit denial" in result["error"]
@@ -107,7 +107,7 @@ async def test_removing_missing_keyspace_never_auto_provisions(server, monkeypat
     monkeypatch.setattr(server, "_resolve_persistent", missing)
     monkeypatch.setattr(server, "_keyspace", keyspace)
 
-    result = await server.memocat_remove_keyspace(keyspace="absent")
+    result = await server.montycat_remove_keyspace(keyspace="absent")
 
     assert result["status"] is False
     assert "does not exist or is not visible" in result["error"]
@@ -131,7 +131,7 @@ async def test_enable_semantic_is_keyspace_scoped_and_uses_typed_model(
     engine = SemanticEngine()
     monkeypatch.setattr(server, "_engine", engine)
 
-    result = await server.memocat_enable_semantic(
+    result = await server.montycat_enable_semantic(
         keyspace="research",
         semantic_model="bge-small",
         field="text",
@@ -159,7 +159,7 @@ async def test_disable_semantic_is_keyspace_scoped(server, monkeypatch):
     engine = SemanticEngine()
     monkeypatch.setattr(server, "_engine", engine)
 
-    result = await server.memocat_disable_semantic(
+    result = await server.montycat_disable_semantic(
         keyspace="research", drop_vectors=True
     )
 
@@ -194,15 +194,15 @@ async def test_semantic_status_and_vector_lifecycle_tools(server, monkeypatch):
     engine = SemanticEngine()
     monkeypatch.setattr(server, "_engine", engine)
 
-    assert (await server.memocat_semantic_status(keyspace="research"))["status"] is True
+    assert (await server.montycat_semantic_status(keyspace="research"))["status"] is True
     assert engine.calls[-1] == ("status", {"store": "memories", "keyspace": "research"})
 
-    assert (await server.memocat_enable_external_vectors(
+    assert (await server.montycat_enable_external_vectors(
         keyspace="research", dimensions=1536, embedding_space="openai:v1"
     ))["status"] is True
     assert engine.calls[-1] == ("external", ("memories", "research", 1536, "openai:v1"))
 
-    assert (await server.memocat_reembed_semantic(
+    assert (await server.montycat_reembed_semantic(
         keyspace="research", semantic_model="bge-small", field="text"
     ))["status"] is True
     kind, args, kwargs = engine.calls[-1]
@@ -220,13 +220,13 @@ async def test_vector_lifecycle_validation(server, monkeypatch):
     monkeypatch.setattr(server, "_engine", SemanticEngine())
 
     with pytest.raises(ValueError, match="dimensions"):
-        await server.memocat_enable_external_vectors("k", 0, "space", store="s")
+        await server.montycat_enable_external_vectors("k", 0, "space", store="s")
     with pytest.raises(ValueError, match="embedding_space"):
-        await server.memocat_enable_external_vectors("k", 3, "", store="s")
+        await server.montycat_enable_external_vectors("k", 3, "", store="s")
     with pytest.raises(ValueError, match="semantic_model"):
-        await server.memocat_reembed_semantic("k", "unknown", store="s")
+        await server.montycat_reembed_semantic("k", "unknown", store="s")
     with pytest.raises(ValueError, match="store is required"):
-        await server.memocat_enable_external_vectors("k", 3, "space")
+        await server.montycat_enable_external_vectors("k", 3, "space")
 
 
 @pytest.mark.asyncio
@@ -237,17 +237,17 @@ async def test_semantic_management_validates_scope_before_engine(server, monkeyp
     monkeypatch.setattr(server, "_engine", SemanticEngine())
 
     with pytest.raises(ValueError, match="keyspace must be"):
-        await server.memocat_enable_semantic(keyspace="")
+        await server.montycat_enable_semantic(keyspace="")
     with pytest.raises(ValueError, match="field must be"):
-        await server.memocat_enable_semantic(keyspace="k", field=" ")
+        await server.montycat_enable_semantic(keyspace="k", field=" ")
     with pytest.raises(ValueError, match="semantic_model"):
-        await server.memocat_enable_semantic(
+        await server.montycat_enable_semantic(
             keyspace="k", semantic_model="unknown"
         )
     with pytest.raises(ValueError, match="store is required"):
-        await server.memocat_enable_semantic(keyspace="k")
+        await server.montycat_enable_semantic(keyspace="k")
     with pytest.raises(ValueError, match="store is required"):
-        await server.memocat_disable_semantic(keyspace="k")
+        await server.montycat_disable_semantic(keyspace="k")
 
 
 @pytest.mark.asyncio
@@ -281,9 +281,9 @@ async def test_snapshot_tools_are_scoped_to_existing_inmemory_keyspace(
         ),
     )
 
-    assert (await server.memocat_start_snapshots("working"))["status"] is True
-    assert (await server.memocat_stop_snapshots("working"))["status"] is True
-    assert (await server.memocat_clean_snapshots("working"))["status"] is True
+    assert (await server.montycat_start_snapshots("working"))["status"] is True
+    assert (await server.montycat_stop_snapshots("working"))["status"] is True
+    assert (await server.montycat_clean_snapshots("working"))["status"] is True
     assert calls == [
         ("bind", "working", False), "start",
         ("bind", "working", False), "stop",
@@ -300,13 +300,13 @@ async def test_snapshot_tools_reject_persistent_or_missing_keyspaces(
 
     monkeypatch.setattr(server, "_resolve_persistent", persistent)
     with pytest.raises(ValueError, match="only for in-memory"):
-        await server.memocat_start_snapshots("durable")
+        await server.montycat_start_snapshots("durable")
 
     async def missing(_name):
         return None
 
     monkeypatch.setattr(server, "_resolve_persistent", missing)
-    result = await server.memocat_start_snapshots("absent")
+    result = await server.montycat_start_snapshots("absent")
     assert result["status"] is False
     assert "does not exist or is not visible" in result["error"]
 
@@ -329,7 +329,7 @@ async def test_snapshot_rate_configuration_error_is_preserved(server, monkeypatc
         server, "_keyspace", lambda *_args, **_kwargs: SnapshotKeyspace()
     )
 
-    result = await server.memocat_start_snapshots("working")
+    result = await server.montycat_start_snapshots("working")
 
     assert result["status"] is False
     assert result["error"] == "Snapshot rate is not set"

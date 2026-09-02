@@ -87,13 +87,13 @@ def test_uri_connection_can_opt_into_tls(server, monkeypatch):
 @pytest.mark.asyncio
 async def test_tool_inputs_are_validated_before_engine_access(server):
     with pytest.raises(ValueError, match="positive integer"):
-        await server.memocat_semantic_search(query="anything", keyspace="k", limit=0)
+        await server.montycat_semantic_search(query="anything", keyspace="k", limit=0)
     with pytest.raises(ValueError, match="between -1 and 1"):
-        await server.memocat_semantic_search(query="anything", keyspace="k", min_score=2)
+        await server.montycat_semantic_search(query="anything", keyspace="k", min_score=2)
     with pytest.raises(ValueError, match="non-empty JSON object"):
-        await server.memocat_remember(value={}, keyspace="k")
+        await server.montycat_remember(value={}, keyspace="k")
     with pytest.raises(ValueError, match="non-empty list"):
-        await server.memocat_remember_bulk(values=[{"ok": True}, "bad"], keyspace="k")
+        await server.montycat_remember_bulk(values=[{"ok": True}, "bad"], keyspace="k")
 
 
 @pytest.mark.asyncio
@@ -106,7 +106,7 @@ async def test_keyspace_discovery_failure_is_a_tool_failure_envelope(server, mon
     server._keyspaces.clear()
     server._ks_type_cache.clear()
 
-    result = await server.memocat_remember(value={"text": "x"}, keyspace="private")
+    result = await server.montycat_remember(value={"text": "x"}, keyspace="private")
 
     assert result["status"] is False
     assert "Could not inspect keyspace" in result["error"]
@@ -126,7 +126,7 @@ async def test_missing_keyspace_without_auto_provision_is_explicit(server, monke
     server._keyspaces.clear()
     server._ks_type_cache.clear()
 
-    result = await server.memocat_remember(value={"text": "x"}, keyspace="private")
+    result = await server.montycat_remember(value={"text": "x"}, keyspace="private")
 
     assert result["status"] is False
     assert "AUTO_PROVISION is disabled" in result["error"]
@@ -148,7 +148,7 @@ async def test_failed_explicit_creation_does_not_poison_keyspace_type_cache(serv
     monkeypatch.setattr(server, "_engine_ready", engine_ready)
     monkeypatch.setattr(server, "_keyspace", lambda *_args, **_kwargs: FailingKeyspace())
 
-    result = await server.memocat_create_keyspace(keyspace="private", persistent=False)
+    result = await server.montycat_create_keyspace(keyspace="private", persistent=False)
 
     assert result["status"] is False
     assert "private" not in server._ks_type_cache
@@ -176,10 +176,10 @@ async def test_create_keyspace_prefers_storage_and_keeps_persistent_compatibilit
     monkeypatch.setattr(server, "_engine_ready", engine_ready)
     monkeypatch.setattr(server, "_keyspace", fake_keyspace)
 
-    result = await server.memocat_create_keyspace(
+    result = await server.montycat_create_keyspace(
         keyspace="working", storage="inmemory"
     )
-    legacy = await server.memocat_create_keyspace(
+    legacy = await server.montycat_create_keyspace(
         keyspace="durable", persistent=True, cache=20, compression=True
     )
 
@@ -204,19 +204,19 @@ async def test_create_keyspace_rejects_invalid_or_conflicting_schema_before_engi
     server,
 ):
     with pytest.raises(ValueError, match="non-empty"):
-        await server.memocat_create_keyspace(keyspace=" ")
+        await server.montycat_create_keyspace(keyspace=" ")
     with pytest.raises(ValueError, match="persistent.*inmemory"):
-        await server.memocat_create_keyspace(keyspace="k", storage="disk")
+        await server.montycat_create_keyspace(keyspace="k", storage="disk")
     with pytest.raises(ValueError, match="conflicting"):
-        await server.memocat_create_keyspace(
+        await server.montycat_create_keyspace(
             keyspace="k", storage="inmemory", persistent=True
         )
     with pytest.raises(ValueError, match="only for persistent"):
-        await server.memocat_create_keyspace(
+        await server.montycat_create_keyspace(
             keyspace="k", storage="inmemory", cache=10
         )
     with pytest.raises(ValueError, match="semantic_model"):
-        await server.memocat_create_keyspace(
+        await server.montycat_create_keyspace(
             keyspace="k", semantic_model="not-a-model"
         )
 
@@ -251,7 +251,7 @@ async def test_create_keyspace_can_enable_scoped_semantic_search(server, monkeyp
     monkeypatch.setattr(server, "_engine", engine)
     monkeypatch.setattr(server, "_keyspace", lambda *_args, **_kwargs: keyspace)
 
-    result = await server.memocat_create_keyspace(
+    result = await server.montycat_create_keyspace(
         keyspace="research",
         storage="persistent",
         semantic_model="bge-small",
@@ -282,27 +282,27 @@ async def test_every_tool_reports_failure_when_the_engine_is_unreachable(server,
     server._ks_type_cache.clear()
 
     tools = {
-        "semantic_search": server.memocat_semantic_search(query="anything", keyspace="k"),
-        "remember": server.memocat_remember(value={"a": 1}, keyspace="k"),
-        "remember_bulk": server.memocat_remember_bulk(values=[{"a": 1}], keyspace="k"),
-        "recall": server.memocat_recall(keyspace="k", key="1"),
-        "list_memories": server.memocat_list_memories(keyspace="k"),
-        "list_keyspaces": server.memocat_list_keyspaces(),
-        "policy_view": server.memocat_policy_view(),
-        "policy_history": server.memocat_policy_history(),
-        "policy_explain": server.memocat_policy_explain(
+        "semantic_search": server.montycat_semantic_search(query="anything", keyspace="k"),
+        "remember": server.montycat_remember(value={"a": 1}, keyspace="k"),
+        "remember_bulk": server.montycat_remember_bulk(values=[{"a": 1}], keyspace="k"),
+        "recall": server.montycat_recall(keyspace="k", key="1"),
+        "list_memories": server.montycat_list_memories(keyspace="k"),
+        "list_keyspaces": server.montycat_list_keyspaces(),
+        "policy_view": server.montycat_policy_view(),
+        "policy_history": server.montycat_policy_history(),
+        "policy_explain": server.montycat_policy_explain(
             capability="manage-semantic"
         ),
-        "create_keyspace": server.memocat_create_keyspace(keyspace="k"),
-        "remove_keyspace": server.memocat_remove_keyspace(keyspace="k"),
-        "enable_semantic": server.memocat_enable_semantic(keyspace="k"),
-        "disable_semantic": server.memocat_disable_semantic(keyspace="k"),
-        "start_snapshots": server.memocat_start_snapshots(keyspace="k"),
-        "stop_snapshots": server.memocat_stop_snapshots(keyspace="k"),
-        "clean_snapshots": server.memocat_clean_snapshots(keyspace="k"),
-        "update": server.memocat_update(updates={"a": 2}, keyspace="k", key="1"),
-        "forget": server.memocat_forget(keyspace="k", key="1"),
-        "await_change": server.memocat_await_memory_change(keyspace="k", timeout_sec=2),
+        "create_keyspace": server.montycat_create_keyspace(keyspace="k"),
+        "remove_keyspace": server.montycat_remove_keyspace(keyspace="k"),
+        "enable_semantic": server.montycat_enable_semantic(keyspace="k"),
+        "disable_semantic": server.montycat_disable_semantic(keyspace="k"),
+        "start_snapshots": server.montycat_start_snapshots(keyspace="k"),
+        "stop_snapshots": server.montycat_stop_snapshots(keyspace="k"),
+        "clean_snapshots": server.montycat_clean_snapshots(keyspace="k"),
+        "update": server.montycat_update(updates={"a": 2}, keyspace="k", key="1"),
+        "forget": server.montycat_forget(keyspace="k", key="1"),
+        "await_change": server.montycat_await_memory_change(keyspace="k", timeout_sec=2),
     }
 
     for name, coro in tools.items():

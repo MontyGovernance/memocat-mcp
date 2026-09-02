@@ -107,12 +107,12 @@ Montycat MCP requires Python 3.10 or newer. The package is published as
 
 ### Upgrading from MemoCat MCP
 
-Montycat MCP preserves the former `memocat-mcp` command, `memocat_mcp` Python
-module, `memocat_*` tool names, and `MEMOCAT_*` configuration variables.
-Existing installations continue to work, while new installations should use
-the `montycat-mcp` package and command. The legacy PyPI package and Claude
-plugin install the current Montycat MCP implementation rather than a separate
-server.
+Montycat MCP 1.0 uses the `montycat_mcp` Python module, `montycat_*` MCP tool
+names, `montycat://` resource URIs, and `MONTYCAT_*` configuration variables.
+The former `memocat-mcp` command and `memocat_mcp` import remain compatibility
+aliases, and legacy `MEMOCAT_*` variables and `memocat://` subscription URIs
+are still accepted. MCP clients that pin tool names must migrate from
+`memocat_*` to `montycat_*`.
 
 ## Quick start
 
@@ -128,29 +128,29 @@ uvx montycat-mcp
 
 | Tool | What it does |
 |------|--------------|
-| `memocat_semantic_search` | Recall by **meaning** (vector kNN), with text or a supplied query vector. |
-| `memocat_remember` | Store a fact/record; embedded automatically or indexed with a supplied vector. |
-| `memocat_remember_bulk` | Store many memories at once. |
-| `memocat_recall` | Fetch by exact key or by field filter. |
-| `memocat_list_memories` | Browse / list stored memories (optionally most-recent first). |
-| `memocat_update` | Revise a memory in place — memory is mutable. |
-| `memocat_forget` | Delete a stored record. |
-| `memocat_list_keyspaces` | Discover available memory namespaces. |
-| `memocat_create_keyspace` | Provision a namespace; superowners also create a missing configured store in the same engine request. |
-| `memocat_remove_keyspace` | Permanently remove an authorized memory namespace with safe watch cleanup. |
-| `memocat_enable_semantic` | Enable semantic search and backfill one authorized keyspace. |
-| `memocat_enable_external_vectors` | Enroll one keyspace for caller-supplied vectors and a named embedding space. |
-| `memocat_semantic_status` | Inspect semantic configuration and backfill state. |
-| `memocat_reembed_semantic` | Replace an enrolled text embedding model and backfill the keyspace. |
-| `memocat_disable_semantic` | Disable semantic search for one authorized keyspace. |
-| `memocat_start_snapshots` | Start scheduled snapshots for one authorized in-memory keyspace. |
-| `memocat_stop_snapshots` | Stop scheduled snapshots for one authorized in-memory keyspace. |
-| `memocat_clean_snapshots` | Delete snapshot files for one authorized in-memory keyspace. |
-| `memocat_policy_view` | View the configured owner's effective governance policy and constraints. |
-| `memocat_policy_explain` | Explain whether a proposed governed action is allowed and why. |
-| `memocat_policy_history` | View governance history visible to the configured owner. |
-| `memocat_await_memory_change` | **Wait for memory to change** — returns the moment another agent or session writes. Live subscription, not polling. |
-| `memocat_install_engine` | Install the Montycat engine on this computer and start it. Opens your OS installer and asks for an administrator password, so it only ever runs when you ask for it. |
+| `montycat_semantic_search` | Recall by **meaning** (vector kNN), with text or a supplied query vector. |
+| `montycat_remember` | Store a fact/record; embedded automatically or indexed with a supplied vector. |
+| `montycat_remember_bulk` | Store many memories at once. |
+| `montycat_recall` | Fetch by exact key or by field filter. |
+| `montycat_list_memories` | Browse / list stored memories (optionally most-recent first). |
+| `montycat_update` | Revise a memory in place — memory is mutable. |
+| `montycat_forget` | Delete a stored record. |
+| `montycat_list_keyspaces` | Discover available memory namespaces. |
+| `montycat_create_keyspace` | Provision a namespace; superowners also create a missing configured store in the same engine request. |
+| `montycat_remove_keyspace` | Permanently remove an authorized memory namespace with safe watch cleanup. |
+| `montycat_enable_semantic` | Enable semantic search and backfill one authorized keyspace. |
+| `montycat_enable_external_vectors` | Enroll one keyspace for caller-supplied vectors and a named embedding space. |
+| `montycat_semantic_status` | Inspect semantic configuration and backfill state. |
+| `montycat_reembed_semantic` | Replace an enrolled text embedding model and backfill the keyspace. |
+| `montycat_disable_semantic` | Disable semantic search for one authorized keyspace. |
+| `montycat_start_snapshots` | Start scheduled snapshots for one authorized in-memory keyspace. |
+| `montycat_stop_snapshots` | Stop scheduled snapshots for one authorized in-memory keyspace. |
+| `montycat_clean_snapshots` | Delete snapshot files for one authorized in-memory keyspace. |
+| `montycat_policy_view` | View the configured owner's effective governance policy and constraints. |
+| `montycat_policy_explain` | Explain whether a proposed governed action is allowed and why. |
+| `montycat_policy_history` | View governance history visible to the configured owner. |
+| `montycat_await_memory_change` | **Wait for memory to change** — returns the moment another agent or session writes. Live subscription, not polling. |
+| `montycat_install_engine` | Install the Montycat engine on this computer and start it. Opens your OS installer and asks for an administrator password, so it only ever runs when you ask for it. |
 
 Routine non-deleting memory writes and configuration changes do not request a
 separate MCP confirmation. Delete, rebuild, vector-dropping, and snapshot
@@ -164,9 +164,9 @@ Other memory servers can only be polled: ask again, and again, in case something
 changed. Montycat has **native live subscriptions**, so this one pushes.
 
 ```
-agent B: memocat_await_memory_change(scope="shared", timeout_sec=60)
+agent B: montycat_await_memory_change(scope="shared", timeout_sec=60)
                     ⏳ sleeps — no polling, no wasted tokens
-agent A: memocat_remember({"text": "the deploy key rotated"}, scope="shared")
+agent A: montycat_remember({"text": "the deploy key rotated"}, scope="shared")
 agent B: ← returns in milliseconds with the key, the value, and the event
 ```
 
@@ -175,7 +175,7 @@ returned `next_seq` back as `since_seq` to resume exactly where you left off —
 changes that happen between calls are buffered, not lost.
 
 Memory namespaces are also exposed as MCP **resources**
-(`memocat://memory/<keyspace>`) with `resources.subscribe` support, so clients
+(`montycat://memory/<keyspace>`) with `resources.subscribe` support, so clients
 that implement resource subscriptions get `notifications/resources/updated`
 pushed to them as well. Both surfaces share one engine subscription.
 
@@ -215,7 +215,7 @@ Subscriptions open on demand and close when idle
   > `uname -m` prints `arm64` on Apple Silicon and `x86_64` on Intel.
 
   Port `21211` is the subscription server and is required for
-  `memocat_await_memory_change` (real-time watch); without it the other tools
+  `montycat_await_memory_change` (real-time watch); without it the other tools
   still work.
 
 ## Docker Compose deployment
@@ -230,7 +230,7 @@ Create a `.env` file beside `compose.yaml`:
 MONTYCAT_USERNAME=admin
 MONTYCAT_PASSWORD=replace-with-a-strong-password
 MONTYCAT_STORE=memories
-MEMOCAT_VERSION=0.5.1
+MONTYCAT_VERSION=1.0.0
 # Apple Silicon: arm64-semantic. Intel/AMD64: semantic.
 MONTYCAT_IMAGE_TAG=semantic
 ```
@@ -245,12 +245,12 @@ docker compose build mcp
 To use the published image instead of building from source:
 
 ```bash
-docker pull montygovernance/montycat-mcp:0.5.1
+docker pull montygovernance/montycat-mcp:1.0.0
 ```
 
-The Compose service uses `montygovernance/montycat-mcp:${MEMOCAT_VERSION}` and
+The Compose service uses `montygovernance/montycat-mcp:${MONTYCAT_VERSION}` and
 waits for the Semantic engine health check before launching MCP. The image runs
-as an unprivileged `memocat` user and supports both AMD64 and ARM64.
+as an unprivileged `montycat` user and supports both AMD64 and ARM64.
 
 The image installs the released `montycat>=1.2.2,<2` Python client declared in
 the package metadata.
@@ -260,7 +260,7 @@ and `21211` are published for debugging and external clients; the MCP container
 uses the private `montycat:21210` network address. Credentials are passed as
 separate environment variables, so passwords with URL-special characters need
 no URL encoding. Port `21211` carries live subscription traffic for
-`memocat_await_memory_change`.
+`montycat_await_memory_change`.
 
 MCP uses stdio, so do **not** run it as a web service. Configure a desktop MCP
 client to invoke the Compose service on demand:
@@ -268,7 +268,7 @@ client to invoke the Compose service on demand:
 ```json
 {
   "mcpServers": {
-    "memocat": {
+    "montycat": {
       "command": "docker",
       "args": [
         "compose",
@@ -309,14 +309,14 @@ beside it (`montycat version`, a compile-time constant that answers while the
 engine is down). An installation that cannot run — wrong architecture, missing
 ONNX libraries, no execute bit — is skipped immediately rather than launched and
 waited on, and the reported edition distinguishes a base-edition install from
-the Semantic one the memory tools need. Set `MEMOCAT_ENGINE_CLI` to point at a
-CLI in a non-standard location, or `MEMOCAT_ENGINE_BINARY` for the engine
+the Semantic one the memory tools need. Set `MONTYCAT_ENGINE_CLI` to point at a
+CLI in a non-standard location, or `MONTYCAT_ENGINE_BINARY` for the engine
 itself.
 
 **Installation is never automatic.** Acquiring the engine opens your operating
 system's installer and asks for an administrator password (or, on Linux, runs
 the APT setup with `sudo`), which should not happen as a side effect of opening
-a chat client. Ask for `memocat_install_engine` instead, and it runs with your
+a chat client. Ask for `montycat_install_engine` instead, and it runs with your
 consent:
 
 | Platform | Route |
@@ -332,13 +332,13 @@ artifact for macOS or Windows. Artifact URLs are treated as opaque, and the
 package's adjacent `.sha256` is required and verified before Installer opens;
 verified packages are cached by filename. If catalog discovery is unavailable,
 installation stops instead of silently installing an older package.
-Override the URL with `MEMOCAT_INSTALLER_URL`, pin a release with
-`MEMOCAT_ENGINE_VERSION`, or adjust the Installer completion budget with
-`MEMOCAT_INSTALLER_TIMEOUT`. On Linux, set
-`MEMOCAT_APT_INSTALL_COMMAND` to use an organization-managed mirror or package
+Override the URL with `MONTYCAT_INSTALLER_URL`, pin a release with
+`MONTYCAT_ENGINE_VERSION`, or adjust the Installer completion budget with
+`MONTYCAT_INSTALLER_TIMEOUT`. On Linux, set
+`MONTYCAT_APT_INSTALL_COMMAND` to use an organization-managed mirror or package
 command. ARM64 Linux goes directly to Docker because the official APT repository
-is AMD64-only. Set `MEMOCAT_AUTOSTART=off` to disable all start attempts, and
-`MEMOCAT_READY_TIMEOUT` (default 20s) to change how long a tool waits for a
+is AMD64-only. Set `MONTYCAT_AUTOSTART=off` to disable all start attempts, and
+`MONTYCAT_READY_TIMEOUT` (default 20s) to change how long a tool waits for a
 starting engine before reporting progress.
 
 ## Connect multiple AI systems to one memory
@@ -356,7 +356,7 @@ Add Montycat MCP to `claude_desktop_config.json`, then restart Claude Desktop:
 ```json
 {
   "mcpServers": {
-    "memocat": {
+    "montycat": {
       "command": "uvx",
       "args": ["montycat-mcp"],
       "env": {
@@ -374,7 +374,7 @@ Add the same server definition to your Cursor MCP configuration:
 ```json
 {
   "mcpServers": {
-    "memocat": {
+    "montycat": {
       "command": "uvx",
       "args": ["montycat-mcp"],
       "env": {
@@ -390,7 +390,7 @@ Add the same server definition to your Cursor MCP configuration:
 Codex can register the local stdio server directly from a terminal:
 
 ```bash
-codex mcp add memocat \
+codex mcp add montycat \
   --env MONTYCAT_URI="montycat://memory-agent:agent-password@localhost:21210/mystore" \
   -- uvx montycat-mcp
 ```
@@ -428,14 +428,14 @@ Grant that owner only the keyspace read/write and provisioning capabilities its
 agent needs. Keep the superowner credential in a separate bootstrap or
 governance-administration workflow.
 
-The read-only `memocat_policy_view`, `memocat_policy_explain`, and
-`memocat_policy_history` tools expose policy information for the authenticated
+The read-only `montycat_policy_view`, `montycat_policy_explain`, and
+`montycat_policy_history` tools expose policy information for the authenticated
 owner. They do not accept an owner override and cannot grant, revoke, deny, or
 otherwise mutate policy. When automatic keyspace provisioning fails, Montycat MCP
 also requests a read-only policy explanation and appends it to the original
 engine error when available.
 
-`memocat_remove_keyspace` is destructive and remains engine-authorized. A
+`montycat_remove_keyspace` is destructive and remains engine-authorized. A
 delegated owner may remove a keyspace through creator authority or an explicit
 `remove-keyspace` grant unless policy contains an overriding denial. Montycat MCP
 closes active watches and releases resource subscriptions before requesting
@@ -480,11 +480,11 @@ changes so they cannot be replayed after access is restored.
 | `MONTYCAT_WATCH_AUTH_LEASE_SEC` | `5` | Seconds between read-authority checks for active watches. Access loss closes the subscription and purges buffered changes. |
 | `MONTYCAT_WATCH_AUTH_TIMEOUT_SEC` | `10` | Maximum seconds allowed for one watch authorization check. A failed check closes the watch safely. |
 
-`memocat_create_keyspace` works with delegated-owner credentials when policy
+`montycat_create_keyspace` works with delegated-owner credentials when policy
 grants `provision-keyspace` for the requested store, storage type, and semantic
 model. The store must already exist for delegated owners. With superowner
 credentials, creating the first keyspace also creates a missing configured
-store in the same engine request. `memocat_forget` deletes one record and
+store in the same engine request. `montycat_forget` deletes one record and
 requires write authority for its keyspace. The engine makes every final
 authorization decision.
 
@@ -553,7 +553,7 @@ To remove data as well:
 - remove the local Montycat MCP state directory at `~/.montycat` only when all
   locally managed Montycat MCP configuration and cached installer state should be
   removed;
-- if the engine was started through Docker, remove the `memocat_data` volume
+- if the engine was started through Docker, remove the `montycat_data` volume
   separately (for example, inspect it first with `docker volume ls` and remove
   that exact volume only when its stored memories are no longer needed);
 - for a user-configured remote engine, remove its data using that engine

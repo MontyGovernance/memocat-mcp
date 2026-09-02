@@ -63,10 +63,10 @@ jobs:
         run: uv run --with twine twine check dist/*.whl dist/*.tar.gz
 
       - name: Smoke-test built wheel
-        run: uv run --isolated --no-project --with dist/montycat_mcp-*.whl python -c 'import memocat_mcp; print(memocat_mcp.__version__)'
+        run: uv run --isolated --no-project --with dist/montycat_mcp-*.whl python -c 'import montycat_mcp, memocat_mcp; assert montycat_mcp.__version__ == memocat_mcp.__version__; print(montycat_mcp.__version__)'
 
       - name: Smoke-test legacy package migration
-        run: uv run --isolated --no-project --find-links dist --with dist/memocat_mcp-*.whl python -c 'import memocat_mcp; print(memocat_mcp.__version__)'
+        run: uv run --isolated --no-project --find-links dist --with dist/memocat_mcp-*.whl python -c 'import montycat_mcp, memocat_mcp; assert montycat_mcp.__version__ == memocat_mcp.__version__; print(montycat_mcp.__version__)'
 
       - name: Build and validate Claude Desktop extension
         run: ./build_mcpb.sh

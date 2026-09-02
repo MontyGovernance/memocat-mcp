@@ -50,8 +50,8 @@ from urllib.parse import urlparse
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 21210
 DOWNLOAD_BASE = "https://downloads.montygovernance.com/bin"
-CONTAINER_NAME = "memocat-engine"
-DEFAULT_STORE = "memocat"
+CONTAINER_NAME = "montycat-engine"
+DEFAULT_STORE = "montycat"
 RELEASE_CATALOG_BASE = "https://infra.montygovernance.com"
 _BINARY_NAMES = ("montycat_bin", "montycat_bin.exe")
 _APT_SEMANTIC_INSTALL = (
@@ -63,7 +63,7 @@ _APT_SEMANTIC_INSTALL = (
     "&& sudo apt update && sudo apt install -y montycat-semantic"
 )
 
-logger = __import__("logging").getLogger("memocat.bootstrap")
+logger = __import__("logging").getLogger("montycat.bootstrap")
 
 
 def _user_agent() -> str:
@@ -92,35 +92,47 @@ class BootstrapError(RuntimeError):
 
 # ── environment ──────────────────────────────────────────────────────────────
 
+def _env(name: str, default=None):
+    """Read canonical configuration, then the deprecated MemoCat spelling."""
+    value = os.environ.get(name)
+    if value is not None:
+        return value
+    if name.startswith("MONTYCAT_"):
+        legacy = f"MEMOCAT_{name.removeprefix('MONTYCAT_')}"
+        value = os.environ.get(legacy)
+        if value is not None:
+            return value
+    return default
+
 def _home() -> Path:
-    return Path(os.environ.get("MONTYCAT_HOME", Path.home() / ".montycat"))
+    return Path(_env("MONTYCAT_HOME", Path.home() / ".montycat"))
 
 
 def _mode() -> str:
     """`auto` | `off` | `native` | `docker`."""
     # A cleared MCPB settings field arrives as an empty string, so fall back
     # after stripping rather than relying on `get`'s absent-variable default.
-    return os.environ.get("MEMOCAT_AUTOSTART", "").strip().lower() or "auto"
+    return _env("MONTYCAT_AUTOSTART", "").strip().lower() or "auto"
 
 
 def _timeout() -> int:
     """Readiness budget. A cold semantic start downloads an embedding model
     before it serves, so this is minutes, not seconds."""
     try:
-        return int(os.environ.get("MEMOCAT_ENGINE_TIMEOUT", "120"))
+        return int(_env("MONTYCAT_ENGINE_TIMEOUT", "120"))
     except ValueError:
         return 120
 
 
 def _installer_timeout() -> int:
     try:
-        return max(30, int(os.environ.get("MEMOCAT_INSTALLER_TIMEOUT", "300")))
+        return max(30, int(_env("MONTYCAT_INSTALLER_TIMEOUT", "300")))
     except ValueError:
         return 300
 
 
 def _host_port() -> tuple[str, int]:
-    uri = os.environ.get("MONTYCAT_URI")
+    uri = _env("MONTYCAT_URI")
     if uri:
         try:
             parsed = urlparse(uri)
@@ -129,8 +141,8 @@ def _host_port() -> tuple[str, int]:
         except ValueError:
             pass
     return (
-        os.environ.get("MONTYCAT_HOST", DEFAULT_HOST),
-        int(os.environ.get("MONTYCAT_PORT", str(DEFAULT_PORT))),
+        _env("MONTYCAT_HOST", DEFAULT_HOST),
+        int(_env("MONTYCAT_PORT", str(DEFAULT_PORT))),
     )
 
 
@@ -157,7 +169,7 @@ def _probe_timeout(host: str) -> float:
     A loopback engine answers immediately or not at all; a remote one crosses a
     network, where 1.5s is tight.
     """
-    override = os.environ.get("MEMOCAT_PROBE_TIMEOUT")
+    override = _env("MONTYCAT_PROBE_TIMEOUT")
     if override:
         try:
             return max(0.1, float(override))
@@ -203,21 +215,23 @@ def credentials() -> tuple[str, str, str]:
     needs superowner rights, and because a regenerated password would lock us
     out of the data volume on the next launch.
     """
-    env_user = os.environ.get("MONTYCAT_USERNAME")
-    env_pass = os.environ.get("MONTYCAT_PASSWORD")
-    store = os.environ.get("MONTYCAT_STORE", DEFAULT_STORE)
+    env_user = _env("MONTYCAT_USERNAME")
+    env_pass = _env("MONTYCAT_PASSWORD")
+    store = _env("MONTYCAT_STORE", DEFAULT_STORE)
     if env_user and env_pass:
         return env_user, env_pass, store
 
-    path = _home() / "memocat.json"
-    if path.exists():
-        try:
-            saved = json.loads(path.read_text())
-            return saved["username"], saved["password"], saved.get("store", store)
-        except (ValueError, KeyError, OSError):
-            pass  # unreadable or malformed -> regenerate below
+    path = _home() / "montycat.json"
+    legacy_path = _home() / "memocat.json"
+    for candidate in (path, legacy_path):
+        if candidate.exists():
+            try:
+                saved = json.loads(candidate.read_text())
+                return saved["username"], saved["password"], saved.get("store", store)
+            except (ValueError, KeyError, OSError):
+                pass  # unreadable or malformed -> try the next source
 
-    creds = {"username": "memocat", "password": secrets.token_urlsafe(24), "store": store}
+    creds = {"username": "montycat", "password": secrets.token_urlsafe(24), "store": store}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(creds, indent=2))
     path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600 — it is a password on disk
@@ -231,19 +245,21 @@ def _publish_existing_credentials(host: str, port: int) -> None:
     generate credentials in this path. Publish only explicit environment
     credentials or a credential file that Montycat MCP already created.
     """
-    env_user = os.environ.get("MONTYCAT_USERNAME")
-    env_pass = os.environ.get("MONTYCAT_PASSWORD")
+    env_user = _env("MONTYCAT_USERNAME")
+    env_pass = _env("MONTYCAT_PASSWORD")
     if env_user and env_pass:
-        _publish(host, port, env_user, env_pass, os.environ.get("MONTYCAT_STORE", DEFAULT_STORE))
+        _publish(host, port, env_user, env_pass, _env("MONTYCAT_STORE", DEFAULT_STORE))
         return
 
-    path = _home() / "memocat.json"
+    path = _home() / "montycat.json"
+    legacy_path = _home() / "memocat.json"
+    path = path if path.exists() else legacy_path
     if not path.exists():
         return
     try:
         saved = json.loads(path.read_text())
         _publish(host, port, saved["username"], saved["password"],
-                 saved.get("store", os.environ.get("MONTYCAT_STORE", DEFAULT_STORE)))
+                 saved.get("store", _env("MONTYCAT_STORE", DEFAULT_STORE)))
     except (ValueError, KeyError, OSError):
         return
 
@@ -279,11 +295,11 @@ def platform_slug() -> Optional[str]:
 def resolve_binary_url(version: str = "latest") -> Optional[str]:
     """Where to fetch the engine archive.
 
-    `MEMOCAT_BINARY_URL` overrides it entirely — that is how this tier is
+    `MONTYCAT_BINARY_URL` overrides it entirely — that is how this tier is
     developed and tested before any artifact is published, and the escape hatch
     for air-gapped installs.
     """
-    override = os.environ.get("MEMOCAT_BINARY_URL")
+    override = _env("MONTYCAT_BINARY_URL")
     if override:
         return override
     slug = platform_slug()
@@ -299,10 +315,10 @@ def installer_url(version: Optional[str] = None) -> Optional[str]:
     this direct URL exists only for an operator who deliberately names a
     version or complete URL.
     """
-    override = os.environ.get("MEMOCAT_INSTALLER_URL")
+    override = _env("MONTYCAT_INSTALLER_URL")
     if override:
         return override
-    version = version or os.environ.get("MEMOCAT_ENGINE_VERSION")
+    version = version or _env("MONTYCAT_ENGINE_VERSION")
     if not version:
         return None
     system = platform.system().lower()
@@ -325,7 +341,7 @@ def _discover_latest_installer_url() -> Optional[str]:
         catalog_platform, required_arch = "windows", None
     else:
         return None
-    base = os.environ.get("MEMOCAT_RELEASES_URL", RELEASE_CATALOG_BASE).rstrip("/")
+    base = _env("MONTYCAT_RELEASES_URL", RELEASE_CATALOG_BASE).rstrip("/")
     try:
         with _urlopen(f"{base}/v1/releases/{catalog_platform}", timeout=15) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -414,7 +430,7 @@ def find_installed_binary() -> Optional[Path]:
     locations cover the conventional macOS and Windows installer destinations,
     whose PATH updates are not visible to the already-running MCP process.
     """
-    explicit = os.environ.get("MEMOCAT_ENGINE_BINARY")
+    explicit = _env("MONTYCAT_ENGINE_BINARY")
     if explicit:
         path = Path(explicit)
         return path if path.is_file() else None
@@ -440,7 +456,7 @@ def find_installed_cli(binary: Optional[Path] = None) -> Optional[Path]:
     Docker image into `/usr/local/bin`, the Debian package into `/usr/bin` —
     so look next to a known engine binary first and fall back to PATH.
     """
-    explicit = os.environ.get("MEMOCAT_ENGINE_CLI")
+    explicit = _env("MONTYCAT_ENGINE_CLI")
     if explicit:
         path = Path(explicit)
         return path if path.is_file() else None
@@ -526,7 +542,9 @@ def engine_build(cli: Optional[Path] = None) -> Optional[tuple[str, str]]:
 def _cache_valid(cache: Path) -> Optional[Path]:
     """Return a cached binary only when its recorded hash still matches."""
     binary = _find_binary(cache) if cache.exists() else None
-    digest_file = cache / ".memocat-binary.sha256"
+    digest_file = cache / ".montycat-binary.sha256"
+    if not digest_file.is_file():
+        digest_file = cache / ".memocat-binary.sha256"
     if binary is None or not digest_file.is_file():
         return None
     try:
@@ -633,7 +651,7 @@ async def download_binary(version: str = "latest") -> Optional[Path]:
                     logger.debug("archive contained no montycat_bin")
                     return None
                 binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
-                (staged / ".memocat-binary.sha256").write_text(_sha256(binary))
+                (staged / ".montycat-binary.sha256").write_text(_sha256(binary))
 
                 if cache.exists():
                     shutil.rmtree(cache)
@@ -645,8 +663,8 @@ async def download_binary(version: str = "latest") -> Optional[Path]:
 
 async def download_installer(version: Optional[str] = None) -> Optional[Path]:
     """Download a verified macOS/Windows installer into the user cache."""
-    pinned = version or os.environ.get("MEMOCAT_ENGINE_VERSION")
-    override = os.environ.get("MEMOCAT_INSTALLER_URL")
+    pinned = version or _env("MONTYCAT_ENGINE_VERSION")
+    override = _env("MONTYCAT_INSTALLER_URL")
     if override or pinned:
         url = installer_url(pinned)
     else:
@@ -735,7 +753,7 @@ async def install_linux_apt() -> bool:
         or shutil.which("apt-get") is None
     ):
         return False
-    command = os.environ.get("MEMOCAT_APT_INSTALL_COMMAND")
+    command = _env("MONTYCAT_APT_INSTALL_COMMAND")
     # The documented command needs pipes and redirection. An override is
     # intentionally executed the same way: it is an operator-controlled escape
     # hatch for mirrors and managed package sources.
@@ -791,7 +809,7 @@ async def start_native(host: str, port: int) -> bool:
         **os.environ,
         "MONTYCAT_SUPEROWNER": user,
         "MONTYCAT_PASSWORD": password,
-        "MONTYCAT_SEMANTIC": os.environ.get("MONTYCAT_SEMANTIC", "on"),
+        "MONTYCAT_SEMANTIC": _env("MONTYCAT_SEMANTIC", "on"),
         **_library_path(binary.parent),
     }
     try:
@@ -867,7 +885,7 @@ async def start_docker(host: str, port: int) -> bool:
                 "-p", f"{port}:21210", "-p", f"{port + 1}:21211",
                 "-e", f"MONTYCAT_SUPEROWNER={user}",
                 "-e", f"MONTYCAT_PASSWORD={password}",
-                "-v", "memocat_data:/var/lib/.montycat",
+                "-v", "montycat_data:/var/lib/.montycat",
                 f"montygovernance/montycat:{docker_tag()}",
             ],
             capture_output=True, timeout=300,
@@ -900,10 +918,10 @@ _INSTALL_HELP = (
     "  • install it natively — Linux: configure the Montycat APT repository and "
     "install `montycat`; macOS/Windows: use the package from "
     "https://montygovernance.com/download\n"
-    "  • or ask me to run `memocat_install_engine`, which downloads the package "
+    "  • or ask me to run `montycat_install_engine`, which downloads the package "
     "and opens your operating system's installer. It will ask for your "
     "administrator password.\n"
-    "Then point Montycat MCP at it with MONTYCAT_URI, or set MEMOCAT_AUTOSTART=off "
+    "Then point Montycat MCP at it with MONTYCAT_URI, or set MONTYCAT_AUTOSTART=off "
     "to skip this check."
 )
 
@@ -929,24 +947,24 @@ async def ensure_engine() -> str:
     mode = _mode()
 
     if await asyncio.to_thread(probe, host, port, _probe_timeout(host)):
-        if not os.environ.get("MONTYCAT_URI"):
+        if not _env("MONTYCAT_URI"):
             _publish_existing_credentials(host, port)
         return "existing"
 
     if mode == "off":
-        # _INSTALL_HELP closes by offering MEMOCAT_AUTOSTART=off, which is the
+        # _INSTALL_HELP closes by offering MONTYCAT_AUTOSTART=off, which is the
         # setting that produced this branch. Say what actually helps here.
         raise BootstrapError(
-            f"No engine at {host}:{port} and MEMOCAT_AUTOSTART=off.\n"
+            f"No engine at {host}:{port} and MONTYCAT_AUTOSTART=off.\n"
             f"{_INSTALL_HELP.rsplit('Then point Montycat MCP at it', 1)[0]}"
             "Then point Montycat MCP at it with MONTYCAT_URI, or set "
-            "MEMOCAT_AUTOSTART=auto to let Montycat MCP start one."
+            "MONTYCAT_AUTOSTART=auto to let Montycat MCP start one."
         )
 
     # An explicit MONTYCAT_URI is a promise that an engine lives there. Starting
     # a different one locally would silently write memories somewhere the user
     # is not looking.
-    if os.environ.get("MONTYCAT_URI"):
+    if _env("MONTYCAT_URI"):
         raise BootstrapError(
             f"MONTYCAT_URI points at {host}:{port} but nothing is listening there.\n"
             "Start that engine, or unset MONTYCAT_URI to let Montycat MCP manage one."
@@ -979,7 +997,7 @@ async def install_engine() -> str:
     """
     host, port = _host_port()
 
-    if os.environ.get("MONTYCAT_URI"):
+    if _env("MONTYCAT_URI"):
         raise BootstrapError(
             "MONTYCAT_URI is set, so Montycat MCP is configured to use the engine at "
             f"{host}:{port}. Installing a local engine would create a second "

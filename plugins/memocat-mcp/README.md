@@ -4,6 +4,9 @@ MemoCat MCP is now **Montycat MCP**. This compatibility plugin keeps existing
 Claude Code and Claude Cowork installations working while launching the current
 `montycat-mcp` package.
 
+Montycat MCP 1.0 advertises `montycat_*` tool names. Existing prompts or client
+policies that pin `memocat_*` names must be updated.
+
 For new installations, use:
 
 ```text

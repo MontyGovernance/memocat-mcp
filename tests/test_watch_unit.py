@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from memocat_mcp.watch import MemoryWatch, parse_frame
+from montycat_mcp.watch import MemoryWatch, parse_frame
 
 
 def upsert(key: str, value_json: str) -> dict:
@@ -165,7 +165,7 @@ def test_broken_notifier_does_not_kill_the_subscription():
 def test_in_use_tracks_resource_subscribers():
     watch = MemoryWatch("k")
     assert not watch.in_use()
-    watch.resource_uris.add("memocat://memory/k")
+    watch.resource_uris.add("montycat://memory/k")
     assert watch.in_use()
 
 
@@ -284,7 +284,7 @@ async def test_authorization_lease_revokes_automatically(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_registry_does_not_restart_a_revoked_watch():
-    from memocat_mcp.watch import WatchRegistry
+    from montycat_mcp.watch import WatchRegistry
 
     class Keyspace:
         starts = 0

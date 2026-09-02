@@ -1,4 +1,4 @@
-"""Storage-type dispatch in `memocat_list_memories`.
+"""Storage-type dispatch in `montycat_list_memories`.
 
 The two keyspace clients do not share a `get_keys` signature:
 
@@ -87,7 +87,7 @@ def _keyspace_pair(latest_keys, all_keys):
 
 @pytest.fixture
 def listing(server, monkeypatch):
-    """Wire `memocat_list_memories` to fake keyspaces and a fake engine."""
+    """Wire `montycat_list_memories` to fake keyspaces and a fake engine."""
 
     async def _ready():
         return None
@@ -110,7 +110,7 @@ async def test_in_memory_full_scan_names_volumes_instead_of_a_range(server, list
     inmem, _persistent, calls = _keyspace_pair([], ["k1", "k2"])
     listing(inmem, _structure({"0": 0, "7": 3}))
 
-    result = await server.memocat_list_memories(keyspace="vol_ks", limit=5, recent=False)
+    result = await server.montycat_list_memories(keyspace="vol_ks", limit=5, recent=False)
 
     assert result["status"] is True
     assert result["payload"] == ["k1", "k2"]
@@ -124,7 +124,7 @@ async def test_in_memory_falls_back_to_a_volume_scan_when_latest_is_empty(server
     inmem, _persistent, calls = _keyspace_pair([], ["k1"])
     listing(inmem, _structure({"0": 0, "7": 1}))
 
-    result = await server.memocat_list_memories(keyspace="vol_ks", limit=5)
+    result = await server.montycat_list_memories(keyspace="vol_ks", limit=5)
 
     assert result["status"] is True
     assert result["payload"] == ["k1"]
@@ -141,7 +141,7 @@ async def test_in_memory_keyspace_with_no_volumes_lists_empty(server, listing):
     inmem, _persistent, calls = _keyspace_pair([], ["k1"])
     listing(inmem, _structure({}))
 
-    result = await server.memocat_list_memories(keyspace="vol_ks", limit=5, recent=False)
+    result = await server.montycat_list_memories(keyspace="vol_ks", limit=5, recent=False)
 
     assert result == {"status": True, "payload": [], "error": None}
     assert calls == []
@@ -154,7 +154,7 @@ async def test_persistent_keyspace_still_scans_by_range(server, listing):
     _inmem, persistent, calls = _keyspace_pair([], ["k1", "k2", "k3"])
     listing(persistent, _structure({}))
 
-    result = await server.memocat_list_memories(keyspace="range_ks", limit=2, recent=False)
+    result = await server.montycat_list_memories(keyspace="range_ks", limit=2, recent=False)
 
     assert result["status"] is True
     assert result["payload"] == ["k1", "k2"], "limit must still trim the over-read"

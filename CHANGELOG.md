@@ -2,6 +2,31 @@
 
 All notable changes to Montycat MCP are documented here.
 
+## 1.0.0 — 2026-09-01
+
+### Changed
+
+- Make `montycat_mcp` the canonical Python package and expose the 23 MCP tools
+  under `montycat_*` names.
+- Change the canonical memory resource scheme to `montycat://` and the Claude
+  Desktop extension identity to `io.github.montygovernance.montycat-mcp`.
+- Rename MCP-specific configuration to `MONTYCAT_*`, the managed local engine
+  container/user/store defaults to Montycat, and all primary examples and
+  manifests to version `1.0.0`.
+
+### Compatibility
+
+- Keep the `memocat-mcp` console command and PyPI package as launchers for the
+  current Montycat MCP implementation.
+- Keep `memocat_mcp` as a thin import alias, including its `server`, `bootstrap`,
+  and `watch` modules and deprecated Python-call aliases.
+- Accept legacy `MEMOCAT_*` environment variables when the corresponding
+  canonical variable is absent, and continue parsing `memocat://` subscription
+  URIs and previously generated `memocat.json` credentials.
+- Existing MCP clients that pin tool names must change `memocat_*` calls to
+  `montycat_*`; the server advertises one clean 23-tool catalog rather than
+  duplicating every tool under both prefixes.
+
 ## 0.5.1 — 2026-09-01
 
 ### Changed

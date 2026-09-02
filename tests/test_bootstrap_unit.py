@@ -16,21 +16,25 @@ from pathlib import Path
 
 import pytest
 
-from memocat_mcp import bootstrap
+from montycat_mcp import bootstrap
 
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
     """Never touch the developer's real ~/.montycat."""
     monkeypatch.setenv("MONTYCAT_HOME", str(tmp_path / "montycat"))
-    for var in ("MONTYCAT_URI", "MEMOCAT_BINARY_URL", "MEMOCAT_AUTOSTART",
+    for var in ("MONTYCAT_URI", "MONTYCAT_BINARY_URL", "MONTYCAT_AUTOSTART",
                 "MONTYCAT_USERNAME", "MONTYCAT_PASSWORD", "MONTYCAT_HOST",
-                "MONTYCAT_PORT", "MONTYCAT_STORE", "MEMOCAT_INSTALLER_URL",
-                "MEMOCAT_ENGINE_VERSION", "MEMOCAT_INSTALLER_TIMEOUT",
-                "MEMOCAT_RELEASES_URL", "MONTYCAT_SEMANTIC",
-                "MEMOCAT_ENGINE_BINARY", "MEMOCAT_ENGINE_CLI",
-                "MEMOCAT_PROBE_TIMEOUT"):
+                "MONTYCAT_PORT", "MONTYCAT_STORE", "MONTYCAT_INSTALLER_URL",
+                "MONTYCAT_ENGINE_VERSION", "MONTYCAT_INSTALLER_TIMEOUT",
+                "MONTYCAT_RELEASES_URL", "MONTYCAT_SEMANTIC",
+                "MONTYCAT_ENGINE_BINARY", "MONTYCAT_ENGINE_CLI",
+                "MONTYCAT_PROBE_TIMEOUT"):
         monkeypatch.delenv(var, raising=False)
+        if var.startswith("MONTYCAT_"):
+            monkeypatch.delenv(
+                f"MEMOCAT_{var.removeprefix('MONTYCAT_')}", raising=False
+            )
     return tmp_path
 
 
@@ -58,7 +62,7 @@ def test_unsupported_platform_has_no_url(monkeypatch):
 
 
 def test_binary_url_override_wins(monkeypatch):
-    monkeypatch.setenv("MEMOCAT_BINARY_URL", "file:///tmp/engine.tar.gz")
+    monkeypatch.setenv("MONTYCAT_BINARY_URL", "file:///tmp/engine.tar.gz")
     assert bootstrap.resolve_binary_url() == "file:///tmp/engine.tar.gz"
 
 
@@ -262,7 +266,7 @@ async def test_downloads_verifies_and_caches(tmp_path, monkeypatch):
     archive = _make_archive(tmp_path)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (tmp_path / "engine.tar.gz.sha256").write_text(f"{digest}  engine.tar.gz\n")
-    monkeypatch.setenv("MEMOCAT_BINARY_URL", f"file://{archive}")
+    monkeypatch.setenv("MONTYCAT_BINARY_URL", f"file://{archive}")
 
     binary = await bootstrap.download_binary()
 
@@ -274,7 +278,7 @@ async def test_downloads_verifies_and_caches(tmp_path, monkeypatch):
 async def test_checksum_mismatch_refuses_to_run_it(tmp_path, monkeypatch):
     archive = _make_archive(tmp_path)
     (tmp_path / "engine.tar.gz.sha256").write_text("0" * 64 + "  engine.tar.gz\n")
-    monkeypatch.setenv("MEMOCAT_BINARY_URL", f"file://{archive}")
+    monkeypatch.setenv("MONTYCAT_BINARY_URL", f"file://{archive}")
 
     with pytest.raises(bootstrap.BootstrapError, match="checksum mismatch"):
         await bootstrap.download_binary()
@@ -285,7 +289,7 @@ async def test_missing_checksum_is_refused_not_trusted(tmp_path, monkeypatch):
     """No published checksum means we cannot verify it, so we do not execute
     it — falling through to Docker is the safe outcome."""
     archive = _make_archive(tmp_path)
-    monkeypatch.setenv("MEMOCAT_BINARY_URL", f"file://{archive}")
+    monkeypatch.setenv("MONTYCAT_BINARY_URL", f"file://{archive}")
     assert await bootstrap.download_binary() is None
 
 
@@ -293,7 +297,7 @@ async def test_missing_checksum_is_refused_not_trusted(tmp_path, monkeypatch):
 async def test_unavailable_artifact_falls_through_quietly(tmp_path, monkeypatch):
     """Until the artifact is published the URL 404s; that is expected, not an
     error the user should see."""
-    monkeypatch.setenv("MEMOCAT_BINARY_URL", f"file://{tmp_path}/does-not-exist.tar.gz")
+    monkeypatch.setenv("MONTYCAT_BINARY_URL", f"file://{tmp_path}/does-not-exist.tar.gz")
     assert await bootstrap.download_binary() is None
 
 
@@ -303,7 +307,7 @@ async def test_macos_installer_is_verified_cached_and_reused(tmp_path, monkeypat
     package.write_bytes(b"signed package placeholder")
     digest = hashlib.sha256(package.read_bytes()).hexdigest()
     (tmp_path / f"{package.name}.sha256").write_text(f"{digest}  {package.name}\n")
-    monkeypatch.setenv("MEMOCAT_INSTALLER_URL", f"file://{package}")
+    monkeypatch.setenv("MONTYCAT_INSTALLER_URL", f"file://{package}")
 
     first = await bootstrap.download_installer()
     assert first is not None and first.read_bytes() == package.read_bytes()
@@ -346,7 +350,7 @@ async def test_cached_binary_is_reused_without_downloading(tmp_path, monkeypatch
     archive = _make_archive(tmp_path)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (tmp_path / "engine.tar.gz.sha256").write_text(f"{digest}\n")
-    monkeypatch.setenv("MEMOCAT_BINARY_URL", f"file://{archive}")
+    monkeypatch.setenv("MONTYCAT_BINARY_URL", f"file://{archive}")
 
     first = await bootstrap.download_binary()
     archive.unlink()  # source gone — a second fetch would now fail
@@ -381,7 +385,7 @@ async def test_tampered_cached_binary_is_not_reused(tmp_path, monkeypatch):
     archive = _make_archive(tmp_path)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (tmp_path / "engine.tar.gz.sha256").write_text(f"{digest}\n")
-    monkeypatch.setenv("MEMOCAT_BINARY_URL", f"file://{archive}")
+    monkeypatch.setenv("MONTYCAT_BINARY_URL", f"file://{archive}")
 
     binary = await bootstrap.download_binary()
     assert binary is not None
@@ -412,8 +416,16 @@ def test_credentials_are_generated_once_and_reused():
 
 def test_credentials_file_is_not_world_readable():
     bootstrap.credentials()
-    path = bootstrap._home() / "memocat.json"
+    path = bootstrap._home() / "montycat.json"
     assert path.stat().st_mode & 0o077 == 0, "password file must be 0600"
+
+
+def test_legacy_environment_name_is_a_fallback(monkeypatch):
+    monkeypatch.setenv("MEMOCAT_AUTOSTART", "off")
+    assert bootstrap._mode() == "off"
+
+    monkeypatch.setenv("MONTYCAT_AUTOSTART", "native")
+    assert bootstrap._mode() == "native", "canonical configuration wins"
 
 
 def test_explicit_credentials_are_respected(monkeypatch):
@@ -455,6 +467,18 @@ async def test_existing_managed_engine_restores_saved_credentials(monkeypatch, t
 
 
 @pytest.mark.asyncio
+async def test_existing_managed_engine_restores_canonical_credentials(monkeypatch, tmp_path):
+    monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: True)
+    monkeypatch.setenv("MONTYCAT_HOME", str(tmp_path))
+    (tmp_path / "montycat.json").write_text(
+        '{"username":"montycat","password":"saved-secret","store":"memories"}'
+    )
+
+    assert await bootstrap.ensure_engine() == "existing"
+    assert os.environ["MONTYCAT_USERNAME"] == "montycat"
+
+
+@pytest.mark.asyncio
 async def test_unknown_existing_engine_does_not_invent_credentials(monkeypatch, tmp_path):
     monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: True)
     monkeypatch.setenv("MONTYCAT_HOME", str(tmp_path))
@@ -465,15 +489,15 @@ async def test_unknown_existing_engine_does_not_invent_credentials(monkeypatch, 
     assert await bootstrap.ensure_engine() == "existing"
     assert "MONTYCAT_USERNAME" not in os.environ
     assert "MONTYCAT_PASSWORD" not in os.environ
-    assert not (tmp_path / "memocat.json").exists()
+    assert not (tmp_path / "montycat.json").exists()
 
 
 @pytest.mark.asyncio
 async def test_autostart_off_refuses_with_instructions(monkeypatch):
     monkeypatch.setattr(bootstrap, "probe", lambda *a, **k: False)
-    monkeypatch.setenv("MEMOCAT_AUTOSTART", "off")
+    monkeypatch.setenv("MONTYCAT_AUTOSTART", "off")
 
-    with pytest.raises(bootstrap.BootstrapError, match="MEMOCAT_AUTOSTART=off"):
+    with pytest.raises(bootstrap.BootstrapError, match="MONTYCAT_AUTOSTART=off"):
         await bootstrap.ensure_engine()
 
 
@@ -570,7 +594,7 @@ async def test_final_failure_names_both_install_paths(monkeypatch):
     message = str(excinfo.value)
     assert "arm64-semantic" in message, "Apple Silicon users need the right tag"
     assert "montygovernance.com/download" in message
-    assert "MEMOCAT_AUTOSTART=off" in message
+    assert "MONTYCAT_AUTOSTART=off" in message
 
 
 @pytest.mark.asyncio
@@ -790,7 +814,7 @@ def test_missing_cli_is_unknown_not_broken(tmp_path):
 def test_cli_is_found_beside_the_engine_binary(tmp_path, monkeypatch):
     """Every packaging installs the pair together — pkg and Docker into
     /usr/local/bin, the Debian package into /usr/bin."""
-    monkeypatch.delenv("MEMOCAT_ENGINE_CLI", raising=False)
+    monkeypatch.delenv("MONTYCAT_ENGINE_CLI", raising=False)
     (tmp_path / "montycat_bin").write_text("")
     (tmp_path / "montycat").write_text("")
 

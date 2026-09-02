@@ -1,8 +1,8 @@
 {
   "manifest_version": "0.4",
-  "name": "io.github.montygovernance.memocat",
+  "name": "io.github.montygovernance.montycat-mcp",
   "display_name": "Montycat MCP — Shared AI Memory",
-  "version": "0.5.1",
+  "version": "1.0.0",
   "description": "One shared, persistent memory across AI agents and systems—local-first, live, and searchable by meaning.",
   "long_description": "Montycat MCP gives Claude Desktop and other MCP-compatible AI systems one durable memory across conversations. Agents connected to the same Montycat engine can remember preferences, decisions, facts, and structured knowledge; recall relevant context by meaning; and react to each other's updates in real time. Run it locally by default or connect it to a trusted shared engine, with the database and embeddings under your control.",
   "author": {
@@ -62,7 +62,7 @@
         "MONTYCAT_URI": "${user_config.montycat_uri}",
         "MONTYCAT_TLS": "${user_config.montycat_tls}",
         "MONTYCAT_DEFAULT_KEYSPACE": "${user_config.default_keyspace}",
-        "MEMOCAT_AUTOSTART": "${user_config.autostart}"
+        "MONTYCAT_AUTOSTART": "${user_config.autostart}"
       }
     }
   },
@@ -98,28 +98,28 @@
     }
   },
   "tools": [
-    {"name": "memocat_semantic_search", "description": "Recall relevant knowledge from shared memory by meaning."},
-    {"name": "memocat_remember", "description": "Add a fact or decision to persistent memory for this agent or others."},
-    {"name": "memocat_remember_bulk", "description": "Add multiple records to persistent shared memory."},
-    {"name": "memocat_recall", "description": "Recall shared knowledge by exact key or field filter."},
-    {"name": "memocat_list_memories", "description": "Browse what agents have stored in memory."},
-    {"name": "memocat_update", "description": "Revise an existing shared memory."},
-    {"name": "memocat_forget", "description": "Permanently delete one memory."},
-    {"name": "memocat_await_memory_change", "description": "Wait for another agent or session to change shared memory."},
-    {"name": "memocat_install_engine", "description": "Install the Montycat engine on this computer and start it."},
-    {"name": "memocat_list_keyspaces", "description": "List visible memory keyspaces."},
-    {"name": "memocat_create_keyspace", "description": "Create a memory keyspace."},
-    {"name": "memocat_remove_keyspace", "description": "Permanently delete a memory keyspace."},
-    {"name": "memocat_enable_semantic", "description": "Enable semantic search for a keyspace."},
-    {"name": "memocat_enable_external_vectors", "description": "Configure caller-supplied vectors for a keyspace."},
-    {"name": "memocat_semantic_status", "description": "Inspect semantic search configuration and backfill status."},
-    {"name": "memocat_reembed_semantic", "description": "Clear and rebuild a keyspace's semantic vectors."},
-    {"name": "memocat_disable_semantic", "description": "Disable semantic search and optionally delete vectors."},
-    {"name": "memocat_start_snapshots", "description": "Start scheduled snapshots for an in-memory keyspace."},
-    {"name": "memocat_stop_snapshots", "description": "Stop scheduled snapshots for an in-memory keyspace."},
-    {"name": "memocat_clean_snapshots", "description": "Delete snapshot files for an in-memory keyspace."},
-    {"name": "memocat_policy_view", "description": "View the configured owner's effective governance policy."},
-    {"name": "memocat_policy_history", "description": "View governance history visible to the configured owner."},
-    {"name": "memocat_policy_explain", "description": "Explain whether a governed action would be allowed."}
+    {"name": "montycat_semantic_search", "description": "Recall relevant knowledge from shared memory by meaning."},
+    {"name": "montycat_remember", "description": "Add a fact or decision to persistent memory for this agent or others."},
+    {"name": "montycat_remember_bulk", "description": "Add multiple records to persistent shared memory."},
+    {"name": "montycat_recall", "description": "Recall shared knowledge by exact key or field filter."},
+    {"name": "montycat_list_memories", "description": "Browse what agents have stored in memory."},
+    {"name": "montycat_update", "description": "Revise an existing shared memory."},
+    {"name": "montycat_forget", "description": "Permanently delete one memory."},
+    {"name": "montycat_await_memory_change", "description": "Wait for another agent or session to change shared memory."},
+    {"name": "montycat_install_engine", "description": "Install the Montycat engine on this computer and start it."},
+    {"name": "montycat_list_keyspaces", "description": "List visible memory keyspaces."},
+    {"name": "montycat_create_keyspace", "description": "Create a memory keyspace."},
+    {"name": "montycat_remove_keyspace", "description": "Permanently delete a memory keyspace."},
+    {"name": "montycat_enable_semantic", "description": "Enable semantic search for a keyspace."},
+    {"name": "montycat_enable_external_vectors", "description": "Configure caller-supplied vectors for a keyspace."},
+    {"name": "montycat_semantic_status", "description": "Inspect semantic search configuration and backfill status."},
+    {"name": "montycat_reembed_semantic", "description": "Clear and rebuild a keyspace's semantic vectors."},
+    {"name": "montycat_disable_semantic", "description": "Disable semantic search and optionally delete vectors."},
+    {"name": "montycat_start_snapshots", "description": "Start scheduled snapshots for an in-memory keyspace."},
+    {"name": "montycat_stop_snapshots", "description": "Stop scheduled snapshots for an in-memory keyspace."},
+    {"name": "montycat_clean_snapshots", "description": "Delete snapshot files for an in-memory keyspace."},
+    {"name": "montycat_policy_view", "description": "View the configured owner's effective governance policy."},
+    {"name": "montycat_policy_history", "description": "View governance history visible to the configured owner."},
+    {"name": "montycat_policy_explain", "description": "Explain whether a governed action would be allowed."}
   ]
 }

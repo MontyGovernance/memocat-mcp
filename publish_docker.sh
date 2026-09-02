@@ -32,9 +32,9 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
 fi
 
 readonly IMAGE="${MONTYCAT_MCP_DOCKER_IMAGE:-montygovernance/montycat-mcp}"
-readonly LEGACY_IMAGE="${MEMOCAT_DOCKER_IMAGE:-montygovernance/memocat-mcp}"
+readonly LEGACY_IMAGE="${MONTYCAT_LEGACY_DOCKER_IMAGE:-${MEMOCAT_DOCKER_IMAGE:-montygovernance/memocat-mcp}}"
 readonly REVISION="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
-readonly BUILDER="memocat-multiarch"
+readonly BUILDER="montycat-multiarch"
 
 if ! docker buildx inspect "$BUILDER" >/dev/null 2>&1; then
   echo "Creating the reusable $BUILDER Buildx builder..."

@@ -35,12 +35,12 @@ async def seed(server, ks):
         value = {"text": text, "project": project}
         if created:
             value["_created_at"] = created
-        await server.memocat_remember(value=value, keyspace=ks)
+        await server.montycat_remember(value=value, keyspace=ks)
 
     # Embedding is a background batch job. Wait for ALL of them — stopping at the
     # first hit would race every count assertion below.
     for _ in range(90):
-        hits = payload(await server.memocat_semantic_search(
+        hits = payload(await server.montycat_semantic_search(
             query="vector index choice", keyspace=ks, limit=10))
         if len(hits) >= len(CORPUS):
             return hits
@@ -50,7 +50,7 @@ async def seed(server, ks):
 
 async def test_created_at_is_stamped_and_readable(server, keyspace):
     await seed(server, keyspace)
-    result = await server.memocat_semantic_search(
+    result = await server.montycat_semantic_search(
         query="vector index choice", keyspace=keyspace, limit=10)
     for hit in payload(result):
         assert "_created_at" in hit["__value__"]
@@ -60,11 +60,11 @@ async def test_metadata_filter_restricts_and_preserves_ranking(server, keyspace)
     await seed(server, keyspace)
     # Baseline must use the SAME query as the filtered call, or the scores are
     # simply from a different search and prove nothing.
-    unfiltered = payload(await server.memocat_semantic_search(
+    unfiltered = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, limit=10))
     scores = {h["__key__"]: h["__score__"] for h in unfiltered}
 
-    hits = payload(await server.memocat_semantic_search(
+    hits = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, filters={"project": "montycat"}))
 
     assert len(hits) == 2
@@ -80,9 +80,9 @@ async def test_filter_beats_query_topic(server, keyspace):
     """Query says space, filter says cooking — the filter wins, and the hits
     score below every space hit."""
     await seed(server, keyspace)
-    space = payload(await server.memocat_semantic_search(
+    space = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, filters={"project": "montycat"}))
-    cooking = payload(await server.memocat_semantic_search(
+    cooking = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, filters={"project": "cooking"}))
 
     assert all(h["__value__"]["project"] == "cooking" for h in cooking)
@@ -93,7 +93,7 @@ async def test_unmatched_filter_returns_empty(server, keyspace):
     """Also the canary for a server that ignores `semantic_filter` entirely:
     it would return the full unfiltered top-k here."""
     await seed(server, keyspace)
-    hits = payload(await server.memocat_semantic_search(
+    hits = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, filters={"project": "nope"}))
     assert hits == []
 
@@ -101,11 +101,11 @@ async def test_unmatched_filter_returns_empty(server, keyspace):
 async def test_since_and_until_split_the_corpus(server, keyspace):
     await seed(server, keyspace)
 
-    recent = payload(await server.memocat_semantic_search(
+    recent = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, limit=10, since="2025-01-01T00:00:00"))
     assert len(recent) == 2, "the 2020 memory must be excluded"
 
-    old = payload(await server.memocat_semantic_search(
+    old = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, limit=10, until="2021-01-01T00:00:00"))
     assert len(old) == 1
     assert old[0]["__value__"]["_created_at"] == "2020-01-01T00:00:00"
@@ -114,7 +114,7 @@ async def test_since_and_until_split_the_corpus(server, keyspace):
 async def test_time_window_and_metadata_compose(server, keyspace):
     """The whole point of hybrid: both constraints in one call."""
     await seed(server, keyspace)
-    hits = payload(await server.memocat_semantic_search(
+    hits = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, limit=10,
         since="2025-01-01T00:00:00", filters={"project": "montycat"}))
     assert len(hits) == 1
@@ -124,12 +124,12 @@ async def test_time_window_and_metadata_compose(server, keyspace):
 
 async def test_min_score_cut_drops_the_weaker_hit(server, keyspace):
     await seed(server, keyspace)
-    space = payload(await server.memocat_semantic_search(
+    space = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, filters={"project": "montycat"}))
     scores = sorted((h["__score__"] for h in space), reverse=True)
     cut = (scores[0] + scores[1]) / 2
 
-    hits = payload(await server.memocat_semantic_search(
+    hits = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace,
         filters={"project": "montycat"}, min_score=cut))
     assert len(hits) == 1
@@ -141,7 +141,7 @@ async def test_score_is_a_number_not_a_string(server, keyspace):
     clients that stringify wide numbers (Node's json-bigint) don't hand back a
     string that breaks arithmetic."""
     await seed(server, keyspace)
-    hits = payload(await server.memocat_semantic_search(
+    hits = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, limit=5))
     assert all(isinstance(h["__score__"], (int, float)) for h in hits)
 
@@ -150,13 +150,13 @@ async def test_empty_filters_means_unfiltered(server, keyspace):
     """`filters={}` is "no constraint", not "match nothing" — it must behave
     exactly like omitting the argument."""
     await seed(server, keyspace)
-    with_empty = payload(await server.memocat_semantic_search(
+    with_empty = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, limit=10, filters={}))
-    without = payload(await server.memocat_semantic_search(
+    without = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, limit=10))
     assert [h["__key__"] for h in with_empty] == [h["__key__"] for h in without]
 
 
 async def test_empty_query_is_rejected(server, keyspace):
     with pytest.raises(ValueError):
-        await server.memocat_semantic_search(query="   ", keyspace=keyspace)
+        await server.montycat_semantic_search(query="   ", keyspace=keyspace)

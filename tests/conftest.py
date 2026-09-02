@@ -16,12 +16,13 @@ import uuid
 
 import pytest
 
-DEFAULT_URI = "montycat://EUGENE:12345@127.0.0.1:21210/playground_store"
-MONTYCAT_URI = os.environ.get("MONTYCAT_TEST_URI", DEFAULT_URI)
+MONTYCAT_URI = os.environ.get("MONTYCAT_TEST_URI", "")
 
 
 def _engine_reachable(uri: str) -> bool:
     """True if something is listening on the engine's host/port."""
+    if not uri:
+        return False
     try:
         hostport = uri.split("@", 1)[1].split("/", 1)[0]
         host, port = hostport.rsplit(":", 1)
@@ -40,13 +41,14 @@ requires_engine = pytest.mark.skipif(
 @pytest.fixture(scope="session", autouse=True)
 def _configure_env():
     """Point the server module at the test engine before it is imported."""
-    os.environ.setdefault("MONTYCAT_URI", MONTYCAT_URI)
-    os.environ.setdefault("MONTYCAT_DEFAULT_KEYSPACE", "memocat_tests")
+    if MONTYCAT_URI:
+        os.environ.setdefault("MONTYCAT_URI", MONTYCAT_URI)
+    os.environ.setdefault("MONTYCAT_DEFAULT_KEYSPACE", "montycat_tests")
 
 
 @pytest.fixture
 def server(_configure_env):
-    from memocat_mcp import server as srv
+    from montycat_mcp import server as srv
 
     # Server state lives at module scope in production, but pytest-asyncio gives
     # tests separate event loops. Never carry a bootstrap task or lock from one
@@ -83,17 +85,17 @@ async def keyspace(server):
     Unique per test so a crashed run can never poison the next one, and so
     tests may run against a shared dev engine without colliding.
     """
-    name = f"memocat_t_{uuid.uuid4().hex[:10]}"
+    name = f"montycat_t_{uuid.uuid4().hex[:10]}"
     raw = server._keyspace(name, persistent=True)
     # Tests using this shared fixture exercise semantic recall. Be explicit:
-    # memocat_create_keyspace defaults to semantic=False by API contract.
-    await server.memocat_create_keyspace(
+    # montycat_create_keyspace defaults to semantic=False by API contract.
+    await server.montycat_create_keyspace(
         keyspace=name, persistent=True, semantic=True
     )
     try:
         yield name
     finally:
-        from memocat_mcp.watch import registry
+        from montycat_mcp.watch import registry
 
         await registry.stop_all()  # a live subscription blocks keyspace removal
         await raw.remove_keyspace()

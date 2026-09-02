@@ -4,14 +4,14 @@
       "command": "uvx",
       "args": [
         "--from",
-        "montycat-mcp==0.5.1",
+        "montycat-mcp==1.0.0",
         "montycat-mcp"
       ],
       "env": {
         "MONTYCAT_URI": "${MONTYCAT_URI:-}",
         "MONTYCAT_TLS": "${MONTYCAT_TLS:-false}",
         "MONTYCAT_DEFAULT_KEYSPACE": "${MONTYCAT_DEFAULT_KEYSPACE:-memory}",
-        "MEMOCAT_AUTOSTART": "${MEMOCAT_AUTOSTART:-auto}"
+        "MONTYCAT_AUTOSTART": "${MONTYCAT_AUTOSTART:-auto}"
       }
     }
   }

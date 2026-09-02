@@ -23,12 +23,12 @@ def body(result):
 async def test_waiting_agent_wakes_on_another_agents_write(server, keyspace):
     async def other_agent_writes():
         await asyncio.sleep(0.3)  # let the subscription establish
-        return await server.memocat_remember(
+        return await server.montycat_remember(
             value={"text": "agent A learned the deploy key rotated"}, keyspace=keyspace)
 
     start = time.perf_counter()
     awaited, written = await asyncio.gather(
-        server.memocat_await_memory_change(keyspace=keyspace, timeout_sec=20),
+        server.montycat_await_memory_change(keyspace=keyspace, timeout_sec=20),
         other_agent_writes(),
     )
     elapsed = time.perf_counter() - start
@@ -46,17 +46,17 @@ async def test_waiting_agent_wakes_on_another_agents_write(server, keyspace):
 
 
 async def test_delete_is_pushed_as_removed(server, keyspace):
-    written = await server.memocat_remember(value={"text": "doomed"}, keyspace=keyspace)
+    written = await server.montycat_remember(value={"text": "doomed"}, keyspace=keyspace)
     key = body(written)
-    cursor = body(await server.memocat_await_memory_change(
+    cursor = body(await server.montycat_await_memory_change(
         keyspace=keyspace, timeout_sec=10))["next_seq"]
 
     async def other_agent_deletes():
         await asyncio.sleep(0.3)
-        return await server.memocat_forget(keyspace=keyspace, key=str(key))
+        return await server.montycat_forget(keyspace=keyspace, key=str(key))
 
     awaited, _ = await asyncio.gather(
-        server.memocat_await_memory_change(
+        server.montycat_await_memory_change(
             keyspace=keyspace, timeout_sec=20, since_seq=cursor),
         other_agent_deletes(),
     )
@@ -66,15 +66,15 @@ async def test_delete_is_pushed_as_removed(server, keyspace):
 async def test_changes_between_calls_are_buffered(server, keyspace):
     """Nothing is missed while no one is waiting — that is what makes the
     `since_seq` cursor trustworthy."""
-    cursor = body(await server.memocat_await_memory_change(
+    cursor = body(await server.montycat_await_memory_change(
         keyspace=keyspace, timeout_sec=2))["next_seq"]
 
-    await server.memocat_remember(
+    await server.montycat_remember(
         value={"text": "written while nobody was waiting"}, keyspace=keyspace)
     await asyncio.sleep(0.5)
 
     start = time.perf_counter()
-    result = body(await server.memocat_await_memory_change(
+    result = body(await server.montycat_await_memory_change(
         keyspace=keyspace, timeout_sec=20, since_seq=cursor))
     elapsed = time.perf_counter() - start
 
@@ -84,7 +84,7 @@ async def test_changes_between_calls_are_buffered(server, keyspace):
 
 async def test_quiet_period_times_out_cleanly(server, keyspace):
     start = time.perf_counter()
-    result = body(await server.memocat_await_memory_change(
+    result = body(await server.montycat_await_memory_change(
         keyspace=keyspace, timeout_sec=2))
     elapsed = time.perf_counter() - start
 
@@ -96,16 +96,16 @@ async def test_quiet_period_times_out_cleanly(server, keyspace):
 async def test_subscription_release_does_not_deadlock_keyspace_removal(server):
     """A lingering engine subscription keeps sled subscribers alive and
     deadlocks later keyspace removal. This is the canary for that."""
-    name = "memocat_t_deadlock_canary"
+    name = "montycat_t_deadlock_canary"
     raw = server._keyspace(name, persistent=True)
     await raw.remove_keyspace()
-    await server.memocat_create_keyspace(keyspace=name, persistent=True)
+    await server.montycat_create_keyspace(keyspace=name, persistent=True)
 
-    await server.memocat_await_memory_change(keyspace=name, timeout_sec=1)
+    await server.montycat_await_memory_change(keyspace=name, timeout_sec=1)
 
     start = time.perf_counter()
     removed = await asyncio.wait_for(
-        server.memocat_remove_keyspace(keyspace=name), timeout=15
+        server.montycat_remove_keyspace(keyspace=name), timeout=15
     )
     elapsed = time.perf_counter() - start
 

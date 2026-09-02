@@ -6,11 +6,11 @@ import asyncio
 
 import pytest
 
-from memocat_mcp import server
-from memocat_mcp.watch import MemoryWatch
+from montycat_mcp import server
+from montycat_mcp.watch import MemoryWatch
 
 
-URI = "memocat://memory/team"
+URI = "montycat://memory/team"
 
 
 class Session:
@@ -37,6 +37,11 @@ def test_resource_session_ownership_is_per_client():
     assert list(server._resource_sessions[URI].values()) == [second]
     assert server._remove_resource_session(URI, second) is True
     assert URI not in server._resource_sessions
+
+
+def test_legacy_resource_uri_is_still_accepted():
+    assert server._keyspace_from_uri("memocat://memory/team") == "team"
+    assert server._keyspace_from_uri("montycat://memory/team") == "team"
 
 
 def test_revocation_discards_all_resource_session_ownership():

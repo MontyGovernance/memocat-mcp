@@ -56,7 +56,7 @@ by default).
 
 Real-time watch: Montycat pushes every change over a live subscription, so an
 agent can be *told* its memory changed instead of polling — see `watch.py` and
-`memocat_await_memory_change`.
+`montycat_await_memory_change`.
 """
 
 from __future__ import annotations
@@ -237,6 +237,8 @@ def _engine_port() -> int:
 
 def _env_bool(name: str, default: bool) -> bool:
     val = os.environ.get(name)
+    if val is None and name.startswith("MONTYCAT_"):
+        val = os.environ.get(f"MEMOCAT_{name.removeprefix('MONTYCAT_')}")
     if val is None:
         return default
     return val.strip().lower() in ("1", "true", "yes", "on")
@@ -494,7 +496,11 @@ _RETRY_COOLDOWN = 30.0
 
 def _ready_budget() -> float:
     try:
-        return max(0.5, float(os.environ.get("MEMOCAT_READY_TIMEOUT", _READY_BUDGET)))
+        value = os.environ.get(
+            "MONTYCAT_READY_TIMEOUT",
+            os.environ.get("MEMOCAT_READY_TIMEOUT", _READY_BUDGET),
+        )
+        return max(0.5, float(value))
     except ValueError:
         return _READY_BUDGET
 
@@ -515,7 +521,7 @@ async def _bootstrap() -> str:
         raise
     _bootstrap_failure = None
     if tier != "existing":
-        logging.getLogger("memocat").info("started Montycat engine via %s", tier)
+        logging.getLogger("montycat").info("started Montycat engine via %s", tier)
     return tier
 
 
@@ -601,7 +607,7 @@ _binding_failure = _engine_tool
 
 @mcp.tool(title="Search Memories", annotations=READ_ONLY)
 @_binding_failure
-async def memocat_semantic_search(
+async def montycat_semantic_search(
     query: str = "",
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
@@ -666,7 +672,7 @@ async def memocat_semantic_search(
 
 @mcp.tool(title="Store Memory", annotations=MUTATING)
 @_binding_failure
-async def memocat_remember(
+async def montycat_remember(
     value: dict,
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
@@ -677,12 +683,12 @@ async def memocat_remember(
 ) -> Any:
     """Store a fact or record in memory; it is embedded and indexed automatically.
 
-    Later recall it by meaning with memocat_semantic_search, or by key with
-    memocat_recall. Returns the generated key in `payload`.
+    Later recall it by meaning with montycat_semantic_search, or by key with
+    montycat_recall. Returns the generated key in `payload`.
 
     Every record is auto-stamped with an indexed `_created_at` (UTC ISO-8601)
     unless the value already carries one — this powers time-range recall
-    (`since`/`until` on memocat_semantic_search). Top-level fields are
+    (`since`/`until` on montycat_semantic_search). Top-level fields are
     indexed, so they can be used as `filters` in hybrid search (e.g. store
     `{"project": "x", ...}`, later filter on it).
 
@@ -718,7 +724,7 @@ async def memocat_remember(
 
 @mcp.tool(title="Recall Memories", annotations=READ_ONLY)
 @_binding_failure
-async def memocat_recall(
+async def montycat_recall(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     key: Optional[str] = None,
@@ -730,7 +736,7 @@ async def memocat_recall(
 
     Provide `key`/`custom_key` to fetch a single record, or `filters` (a map of
     field -> value) to look up all records matching those fields. For meaning-based
-    recall use memocat_semantic_search instead.
+    recall use montycat_semantic_search instead.
 
     Args:
         keyspace: Memory namespace (defaults to the configured one).
@@ -751,7 +757,7 @@ async def memocat_recall(
 
 
 @mcp.tool(title="Install Montycat Engine", annotations=INSTALLS_SOFTWARE)
-async def memocat_install_engine() -> Any:
+async def montycat_install_engine() -> Any:
     """Install the Montycat engine on THIS computer, then start it.
 
     Call this only when memory tools report that no engine is running and the
@@ -785,7 +791,7 @@ async def memocat_install_engine() -> Any:
 
 @mcp.tool(title="List Memory Keyspaces", annotations=READ_ONLY)
 @_engine_tool
-async def memocat_list_keyspaces() -> Any:
+async def montycat_list_keyspaces() -> Any:
     """List the available memory stores and keyspaces on this Montycat engine."""
     await _engine_ready()
     return await _call(_get_engine().get_structure_available())
@@ -793,7 +799,7 @@ async def memocat_list_keyspaces() -> Any:
 
 @mcp.tool(title="View Memory Policy", annotations=READ_ONLY)
 @_engine_tool
-async def memocat_policy_view(store: Optional[str] = None) -> Any:
+async def montycat_policy_view(store: Optional[str] = None) -> Any:
     """View the configured owner's effective Montycat governance policy.
 
     This is read-only. It reports the authenticated owner's effective grants,
@@ -813,7 +819,7 @@ async def memocat_policy_view(store: Optional[str] = None) -> Any:
 
 @mcp.tool(title="View Policy History", annotations=READ_ONLY)
 @_engine_tool
-async def memocat_policy_history(
+async def montycat_policy_history(
     store: Optional[str] = None,
     keyspace: Optional[str] = None,
 ) -> Any:
@@ -839,7 +845,7 @@ async def memocat_policy_history(
 
 @mcp.tool(title="Explain Policy Decision", annotations=READ_ONLY)
 @_engine_tool
-async def memocat_policy_explain(
+async def montycat_policy_explain(
     capability: str,
     store: Optional[str] = None,
     keyspace: Optional[str] = None,
@@ -904,7 +910,7 @@ async def memocat_policy_explain(
 
 @mcp.tool(title="Create Memory Keyspace", annotations=MUTATING)
 @_engine_tool
-async def memocat_create_keyspace(
+async def montycat_create_keyspace(
     keyspace: str,
     storage: Optional[str] = None,
     semantic: bool = False,
@@ -1009,7 +1015,7 @@ async def memocat_create_keyspace(
 
 @mcp.tool(title="Delete Memory Keyspace", annotations=DESTRUCTIVE)
 @_binding_failure
-async def memocat_remove_keyspace(
+async def montycat_remove_keyspace(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
 ) -> Any:
@@ -1057,7 +1063,7 @@ async def memocat_remove_keyspace(
 
 @mcp.tool(title="Enable Semantic Search", annotations=MUTATING)
 @_engine_tool
-async def memocat_enable_semantic(
+async def montycat_enable_semantic(
     keyspace: str,
     store: Optional[str] = None,
     semantic_model: Optional[str] = None,
@@ -1116,7 +1122,7 @@ def _semantic_store(engine: Engine, store: Optional[str]) -> str:
 
 @mcp.tool(title="View Semantic Search Status", annotations=READ_ONLY)
 @_engine_tool
-async def memocat_semantic_status(
+async def montycat_semantic_status(
     store: Optional[str] = None,
     keyspace: Optional[str] = None,
 ) -> Any:
@@ -1136,7 +1142,7 @@ async def memocat_semantic_status(
 
 @mcp.tool(title="Enable External Vectors", annotations=MUTATING)
 @_engine_tool
-async def memocat_enable_external_vectors(
+async def montycat_enable_external_vectors(
     keyspace: str,
     dimensions: int,
     embedding_space: str,
@@ -1159,7 +1165,7 @@ async def memocat_enable_external_vectors(
 
 @mcp.tool(title="Rebuild Semantic Vectors", annotations=DESTRUCTIVE)
 @_engine_tool
-async def memocat_reembed_semantic(
+async def montycat_reembed_semantic(
     keyspace: str,
     semantic_model: str,
     store: Optional[str] = None,
@@ -1168,7 +1174,7 @@ async def memocat_reembed_semantic(
     """Replace an enrolled keyspace's text embedding model and backfill it.
 
     This clears its current vectors, then has the engine rebuild them. Use
-    `memocat_semantic_status` to observe the resulting configuration.
+    `montycat_semantic_status` to observe the resulting configuration.
     """
     if not isinstance(keyspace, str) or not keyspace.strip():
         raise ValueError("keyspace must be a non-empty string.")
@@ -1189,7 +1195,7 @@ async def memocat_reembed_semantic(
 
 @mcp.tool(title="Disable Semantic Search", annotations=DESTRUCTIVE)
 @_engine_tool
-async def memocat_disable_semantic(
+async def montycat_disable_semantic(
     keyspace: str,
     store: Optional[str] = None,
     drop_vectors: bool = False,
@@ -1239,7 +1245,7 @@ async def _snapshot_keyspace(keyspace: str):
 
 @mcp.tool(title="Start Memory Snapshots", annotations=MUTATING)
 @_binding_failure
-async def memocat_start_snapshots(keyspace: str) -> Any:
+async def montycat_start_snapshots(keyspace: str) -> Any:
     """Start scheduled snapshots for one existing in-memory keyspace.
 
     Montycat enforces `manage-snapshots`, creator authority, and explicit
@@ -1259,7 +1265,7 @@ async def memocat_start_snapshots(keyspace: str) -> Any:
 
 @mcp.tool(title="Stop Memory Snapshots", annotations=MUTATING)
 @_binding_failure
-async def memocat_stop_snapshots(keyspace: str) -> Any:
+async def montycat_stop_snapshots(keyspace: str) -> Any:
     """Stop scheduled snapshots for one existing in-memory keyspace.
 
     Existing snapshot files are retained. Montycat performs the final
@@ -1274,7 +1280,7 @@ async def memocat_stop_snapshots(keyspace: str) -> Any:
 
 @mcp.tool(title="Delete Memory Snapshots", annotations=DESTRUCTIVE)
 @_binding_failure
-async def memocat_clean_snapshots(keyspace: str) -> Any:
+async def montycat_clean_snapshots(keyspace: str) -> Any:
     """Delete snapshot files for one existing in-memory keyspace.
 
     This is destructive to the keyspace's snapshot history but does not delete
@@ -1290,7 +1296,7 @@ async def memocat_clean_snapshots(keyspace: str) -> Any:
 
 @mcp.tool(title="Delete Memory", annotations=DESTRUCTIVE)
 @_binding_failure
-async def memocat_forget(
+async def montycat_forget(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     key: Optional[str] = None,
@@ -1314,7 +1320,7 @@ async def memocat_forget(
 
 @mcp.tool(title="Update Memory", annotations=MUTATING)
 @_binding_failure
-async def memocat_update(
+async def montycat_update(
     updates: dict,
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
@@ -1350,7 +1356,7 @@ async def memocat_update(
 
 @mcp.tool(title="List Memories", annotations=READ_ONLY)
 @_binding_failure
-async def memocat_list_memories(
+async def montycat_list_memories(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     limit: int = 25,
@@ -1359,8 +1365,8 @@ async def memocat_list_memories(
     """Browse stored memories — enumerate what is remembered, not search by meaning.
 
     Returns up to `limit` records with their keys. Use this to review or list
-    memory; for meaning-based recall use memocat_semantic_search, and for exact
-    lookups use memocat_recall.
+    memory; for meaning-based recall use montycat_semantic_search, and for exact
+    lookups use montycat_recall.
 
     Args:
         keyspace: Memory namespace (defaults to the configured one).
@@ -1413,7 +1419,7 @@ async def memocat_list_memories(
 
 @mcp.tool(title="Store Multiple Memories", annotations=MUTATING)
 @_binding_failure
-async def memocat_remember_bulk(
+async def montycat_remember_bulk(
     values: list,
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
@@ -1446,7 +1452,7 @@ async def memocat_remember_bulk(
 
 @mcp.tool(title="Wait for Memory Change", annotations=READ_ONLY)
 @_binding_failure
-async def memocat_await_memory_change(
+async def montycat_await_memory_change(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     timeout_sec: int = 30,
@@ -1460,7 +1466,7 @@ async def memocat_await_memory_change(
     with other agents sharing a scope ("tell me when someone adds to our shared
     memory"), or to confirm a write from another session landed. Do NOT call it
     in a tight loop as a substitute for searching — to *find* things, use
-    memocat_semantic_search.
+    montycat_semantic_search.
 
     Returns `{changes: [...], next_seq, oldest_seq, cursor_expired, timed_out}`.
     Each change is
@@ -1548,7 +1554,8 @@ async def memocat_await_memory_change(
 # pushes `notifications/resources/updated` when it changes. Both read the same
 # subscription, so a change is delivered once and seen by both.
 
-_MEMORY_URI = "memocat://memory/{keyspace}"
+_MEMORY_URI = "montycat://memory/{keyspace}"
+_LEGACY_MEMORY_URI = "memocat://memory/{keyspace}"
 
 
 def _memory_uri(keyspace: str) -> str:
@@ -1577,6 +1584,7 @@ async def _authorize_watch(keyspace: str) -> Optional[str]:
     return f"read authority no longer includes keyspace {keyspace!r}"
 
 
+@mcp.resource(_LEGACY_MEMORY_URI, mime_type="application/json")
 @mcp.resource(_MEMORY_URI, mime_type="application/json")
 async def memory_resource(keyspace: str) -> Any:
     """A memory namespace, readable as a resource and subscribable for live
@@ -1681,9 +1689,11 @@ watch_registry.on_revoke = _watch_revoked
 
 
 def _keyspace_from_uri(uri: str) -> Optional[str]:
-    prefix = "memocat://memory/"
     text = str(uri)
-    return text[len(prefix):] or None if text.startswith(prefix) else None
+    for prefix in ("montycat://memory/", "memocat://memory/"):
+        if text.startswith(prefix):
+            return text[len(prefix):] or None
+    return None
 
 
 @mcp._mcp_server.subscribe_resource()
@@ -1757,6 +1767,33 @@ async def _run_stdio() -> None:
                 _bootstrap_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await _bootstrap_task
+
+
+# Deprecated Python-call aliases. They are intentionally not registered as MCP
+# tools: the 1.0 tool catalog advertises only the canonical Montycat names.
+memocat_semantic_search = montycat_semantic_search
+memocat_remember = montycat_remember
+memocat_recall = montycat_recall
+memocat_install_engine = montycat_install_engine
+memocat_list_keyspaces = montycat_list_keyspaces
+memocat_policy_view = montycat_policy_view
+memocat_policy_history = montycat_policy_history
+memocat_policy_explain = montycat_policy_explain
+memocat_create_keyspace = montycat_create_keyspace
+memocat_remove_keyspace = montycat_remove_keyspace
+memocat_enable_semantic = montycat_enable_semantic
+memocat_semantic_status = montycat_semantic_status
+memocat_enable_external_vectors = montycat_enable_external_vectors
+memocat_reembed_semantic = montycat_reembed_semantic
+memocat_disable_semantic = montycat_disable_semantic
+memocat_start_snapshots = montycat_start_snapshots
+memocat_stop_snapshots = montycat_stop_snapshots
+memocat_clean_snapshots = montycat_clean_snapshots
+memocat_forget = montycat_forget
+memocat_update = montycat_update
+memocat_list_memories = montycat_list_memories
+memocat_remember_bulk = montycat_remember_bulk
+memocat_await_memory_change = montycat_await_memory_change
 
 
 def main() -> None:

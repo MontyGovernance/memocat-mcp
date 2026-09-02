@@ -15,7 +15,7 @@ import asyncio
 
 import pytest
 
-from memocat_mcp import bootstrap, server as srv
+from montycat_mcp import bootstrap, server as srv
 
 
 @pytest.fixture(autouse=True)
@@ -40,9 +40,9 @@ async def test_a_pending_bootstrap_reports_progress_instead_of_hanging(monkeypat
         await asyncio.sleep(3600)
 
     monkeypatch.setattr(srv, "_bootstrap", never_finishes)
-    monkeypatch.setenv("MEMOCAT_READY_TIMEOUT", "0.1")
+    monkeypatch.setenv("MONTYCAT_READY_TIMEOUT", "0.1")
 
-    result = await srv.memocat_list_keyspaces()
+    result = await srv.montycat_list_keyspaces()
 
     assert started.is_set(), "bootstrap must have been kicked off by the tool call"
     assert result["status"] is False
@@ -57,7 +57,7 @@ async def test_a_failed_bootstrap_returns_its_instructions_verbatim(monkeypatch)
 
     monkeypatch.setattr(srv, "_bootstrap", fails)
 
-    result = await srv.memocat_list_keyspaces()
+    result = await srv.montycat_list_keyspaces()
     assert result["status"] is False
     assert result["error"] == "GO INSTALL AN ENGINE"
 
@@ -77,7 +77,7 @@ async def test_a_failed_bootstrap_is_retried_once_the_cooldown_expires(monkeypat
     monkeypatch.setattr(srv, "_bootstrap", flaky)
     monkeypatch.setattr(srv, "_RETRY_COOLDOWN", 0.0)
 
-    first = await srv.memocat_list_keyspaces()
+    first = await srv.montycat_list_keyspaces()
     assert first["status"] is False
 
     # The user started Docker in the meantime; the next call must try again
@@ -98,7 +98,7 @@ async def test_an_unexpected_bootstrap_failure_is_recorded_and_retryable(monkeyp
     monkeypatch.setattr(bootstrap, "ensure_engine", unexpected_then_ready)
     monkeypatch.setattr(srv, "_RETRY_COOLDOWN", 0.0)
 
-    first = await srv.memocat_list_keyspaces()
+    first = await srv.montycat_list_keyspaces()
     assert first == {
         "status": False,
         "payload": None,
@@ -134,7 +134,7 @@ async def test_explicit_install_waits_for_automatic_acquisition(monkeypatch):
     # Keep the installer from launching an unrelated verification task after
     # the ordering under test has completed.
     monkeypatch.setattr(srv, "start_bootstrap", lambda: automatic_task)
-    install_task = asyncio.create_task(srv.memocat_install_engine())
+    install_task = asyncio.create_task(srv.montycat_install_engine())
     await asyncio.sleep(0)
 
     assert order == ["automatic-start"]

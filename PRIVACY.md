@@ -55,8 +55,8 @@ their AI system explicitly invokes outside Montycat MCP.
 
 ## Deletion
 
-Users can delete individual memories with `memocat_forget` and keyspaces with
-`memocat_remove_keyspace`. Removing Montycat MCP from an MCP client, including
+Users can delete individual memories with `montycat_forget` and keyspaces with
+`montycat_remove_keyspace`. Removing Montycat MCP from an MCP client, including
 uninstalling the Claude Desktop extension, stops that integration but does not
 automatically delete the configured database, snapshots, native-engine data,
 or Docker volumes. Follow the removal instructions in the project README to
