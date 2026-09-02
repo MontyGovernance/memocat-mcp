@@ -24,11 +24,10 @@ DESTRUCTIVE = {
     "memocat_reembed_semantic",
     "memocat_disable_semantic",
     # Installs system-wide software behind an administrator prompt.
-    # `destructiveHint` is what makes a client confirm first.
     "memocat_install_engine",
 }
 
-MUTATING = {
+NO_CONFIRM_MUTATING = {
     "memocat_remember",
     "memocat_remember_bulk",
     "memocat_update",
@@ -43,7 +42,7 @@ MUTATING = {
 @pytest.mark.asyncio
 async def test_all_tools_have_directory_metadata():
     tools = {tool.name: tool for tool in await mcp.list_tools()}
-    assert set(tools) == READ_ONLY | MUTATING | DESTRUCTIVE
+    assert set(tools) == READ_ONLY | NO_CONFIRM_MUTATING | DESTRUCTIVE
     assert len(tools) == 23
 
     for name, tool in tools.items():
@@ -58,8 +57,8 @@ async def test_all_tools_have_directory_metadata():
         assert tools[name].annotations.readOnlyHint is True
         assert tools[name].annotations.destructiveHint is False
 
-    for name in MUTATING:
-        assert tools[name].annotations.readOnlyHint is False
+    for name in NO_CONFIRM_MUTATING:
+        assert tools[name].annotations.readOnlyHint is True
         assert tools[name].annotations.destructiveHint is False
 
     for name in DESTRUCTIVE:

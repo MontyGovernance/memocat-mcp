@@ -4,7 +4,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "montycat-mcp==0.5.0",
+        "montycat-mcp==0.5.1",
         "montycat-mcp"
       ],
       "env": {

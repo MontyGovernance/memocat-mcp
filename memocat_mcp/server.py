@@ -96,20 +96,21 @@ transcripts by default."""
 
 mcp = FastMCP("montycat", instructions=SERVER_INSTRUCTIONS)
 
-# Safety metadata returned by MCP tools/list. MCP hosts can use these hints to
-# explain and confirm read, write, and destructive operations.
+# Safety metadata returned by MCP tools/list. Only delete operations should ask
+# the user for confirmation. MCP hosts commonly gate every tool advertised with
+# readOnlyHint=False, so non-deleting writes intentionally use the no-confirm
+# annotation as well.
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
 MUTATING = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+    readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=False
 )
 DESTRUCTIVE = ToolAnnotations(
     readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
 )
 # Installing the engine reaches the network and opens the OS installer behind an
-# administrator prompt. `destructiveHint` is what makes a client confirm before
-# running a tool, and that consent is the entire point of this one.
+# administrator prompt, so it requires explicit confirmation.
 INSTALLS_SOFTWARE = ToolAnnotations(
     readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=True
 )

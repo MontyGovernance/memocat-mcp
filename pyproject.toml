@@ -1,6 +1,6 @@
 [project]
 name = "montycat-mcp"
-version = "0.5.0"
+version = "0.5.1"
 description = "Shared, persistent memory across AI agents and systems through MCP."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -2,6 +2,17 @@
 
 All notable changes to Montycat MCP are documented here.
 
+## 0.5.1 — 2026-09-01
+
+### Changed
+
+- Stop requesting user confirmation for routine non-deleting memory writes and
+  configuration changes.
+- Continue requiring explicit confirmation for delete, rebuild,
+  vector-dropping, and snapshot-cleanup operations.
+- Keep engine installation approval-required because it downloads software and
+  opens the operating system installer.
+
 ## 0.5.0 — 2026-09-01
 
 ### Added

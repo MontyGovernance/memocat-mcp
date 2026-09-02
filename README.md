@@ -152,6 +152,12 @@ uvx montycat-mcp
 | `memocat_await_memory_change` | **Wait for memory to change** — returns the moment another agent or session writes. Live subscription, not polling. |
 | `memocat_install_engine` | Install the Montycat engine on this computer and start it. Opens your OS installer and asks for an administrator password, so it only ever runs when you ask for it. |
 
+Routine non-deleting memory writes and configuration changes do not request a
+separate MCP confirmation. Delete, rebuild, vector-dropping, and snapshot
+cleanup tools remain approval-required. Engine installation also always
+requires explicit confirmation because it downloads software and opens the
+operating system installer.
+
 ## Real-time memory watch
 
 Other memory servers can only be polled: ask again, and again, in case something
@@ -224,7 +230,7 @@ Create a `.env` file beside `compose.yaml`:
 MONTYCAT_USERNAME=admin
 MONTYCAT_PASSWORD=replace-with-a-strong-password
 MONTYCAT_STORE=memories
-MEMOCAT_VERSION=0.5.0
+MEMOCAT_VERSION=0.5.1
 # Apple Silicon: arm64-semantic. Intel/AMD64: semantic.
 MONTYCAT_IMAGE_TAG=semantic
 ```
@@ -239,7 +245,7 @@ docker compose build mcp
 To use the published image instead of building from source:
 
 ```bash
-docker pull montygovernance/montycat-mcp:0.5.0
+docker pull montygovernance/montycat-mcp:0.5.1
 ```
 
 The Compose service uses `montygovernance/montycat-mcp:${MEMOCAT_VERSION}` and
