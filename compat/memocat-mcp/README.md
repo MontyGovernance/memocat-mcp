@@ -8,7 +8,7 @@ current `montycat-mcp` implementation.
 Version 1.0 advertises canonical `montycat_*` MCP tool names. Clients that pin
 the former `memocat_*` names must update those calls.
 
-New installations should use: 
+New installations should use:
 
 ```bash
 uvx montycat-mcp
