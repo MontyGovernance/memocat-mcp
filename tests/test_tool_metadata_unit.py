@@ -23,7 +23,7 @@ DESTRUCTIVE = {
     "montycat_clean_snapshots",
     "montycat_reembed_semantic",
     "montycat_disable_semantic",
-    # Installs system-wide software behind an administrator prompt.
+    # Installs system-wide software behind an administrator prompt. 
     "montycat_install_engine",
 }
 
