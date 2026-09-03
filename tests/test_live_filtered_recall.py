@@ -1,9 +1,12 @@
-"""Hybrid recall against a live engine: meaning + metadata + time in one call.
+"""Filtered recall against a live engine: meaning + metadata + time in one call.
 
 The filter is a hard AND over indexed fields; ranking stays pure cosine. These
 assert the payload's *content*, not just a non-error status — a server that
 ignored `semantic_filter` would return status true with unfiltered hits, which
 only a content check catches.
+
+Ranking modes (keyword and hybrid BM25/RRF) live in `test_live_search_modes.py`;
+"hybrid" here would mean the older sense of the word.
 """
 
 from __future__ import annotations
@@ -26,6 +29,10 @@ CORPUS = [
 
 
 def payload(result):
+    """Hits from a successful call; an engine failure raises rather than reads
+    as "no results" — a masked error is a 90-second lie about embeddings."""
+    if isinstance(result, dict) and result.get("status") is False:
+        pytest.fail(f"engine call failed: {result.get('error')}")
     body = result.get("payload") if isinstance(result, dict) else None
     return body if isinstance(body, list) else []
 
@@ -112,7 +119,7 @@ async def test_since_and_until_split_the_corpus(server, keyspace):
 
 
 async def test_time_window_and_metadata_compose(server, keyspace):
-    """The whole point of hybrid: both constraints in one call."""
+    """The whole point of filtered recall: both constraints in one call."""
     await seed(server, keyspace)
     hits = payload(await server.montycat_semantic_search(
         query=SPACE_QUERY, keyspace=keyspace, limit=10,

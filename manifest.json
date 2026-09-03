@@ -1,9 +1,9 @@
 {
   "manifest_version": "0.4",
   "name": "io.github.montygovernance.montycat-mcp",
-  "display_name": "Montycat MCP — Shared AI Memory",
-  "version": "1.0.0",
-  "description": "One shared, persistent memory across AI agents and systems—local-first, live, and searchable by meaning.",
+  "display_name": "Montycat MCP — Shared Memory for AI Agents",
+  "version": "1.1.0",
+  "description": "Shared, persistent memory for AI agents — local-first, live, and searchable by meaning.",
   "long_description": "Montycat MCP gives Claude Desktop and other MCP-compatible AI systems one durable memory across conversations. Agents connected to the same Montycat engine can remember preferences, decisions, facts, and structured knowledge; recall relevant context by meaning; and react to each other's updates in real time. Run it locally by default or connect it to a trusted shared engine, with the database and embeddings under your control.",
   "author": {
     "name": "MontyGovernance",
@@ -35,6 +35,8 @@
     "OpenAI Codex",
     "Cursor",
     "semantic search",
+    "keyword search",
+    "hybrid search",
     "semantic memory",
     "self-hosted",
     "local AI",
@@ -98,7 +100,7 @@
     }
   },
   "tools": [
-    {"name": "montycat_semantic_search", "description": "Recall relevant knowledge from shared memory by meaning."},
+    {"name": "montycat_semantic_search", "description": "Recall relevant knowledge from shared memory by meaning, keyword, or both."},
     {"name": "montycat_remember", "description": "Add a fact or decision to persistent memory for this agent or others."},
     {"name": "montycat_remember_bulk", "description": "Add multiple records to persistent shared memory."},
     {"name": "montycat_recall", "description": "Recall shared knowledge by exact key or field filter."},

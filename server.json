@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.MontyGovernance/montycat-mcp",
-  "title": "Montycat MCP — Shared AI Memory",
-  "description": "One shared, persistent memory across AI agents and systems, with semantic recall and live updates.",
+  "title": "Montycat MCP — Shared Memory for AI Agents",
+  "description": "Shared, persistent memory for AI agents, with semantic recall and live updates.",
   "repository": {
     "url": "https://github.com/MontyGovernance/montycat-mcp",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "montycat-mcp",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "transport": {
         "type": "stdio"
       },
@@ -35,7 +35,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "docker.io/montygovernance/montycat-mcp:1.0.0",
+      "identifier": "docker.io/montygovernance/montycat-mcp:1.1.0",
       "transport": {
         "type": "stdio"
       },

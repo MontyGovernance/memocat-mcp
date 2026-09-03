@@ -2,6 +2,34 @@
 
 All notable changes to Montycat MCP are documented here.
 
+## 1.1.0 — 2026-09-03
+
+Aligns with Montycat Semantic 1.3.4 and the Montycat Python client 1.2.3.
+
+### Added
+
+- Add `mode` to `montycat_semantic_search`: `semantic` (default, vector
+  similarity), `keyword` (BM25), and `hybrid` (both, fused with reciprocal rank
+  fusion). Keyword and hybrid need a Montycat Semantic engine >= 1.3.4; older
+  engines reject those modes rather than silently ranking by vector alone.
+- Validate `min_score` on the scale of the requested mode — `[-1, 1]` cosine,
+  `[0, 1]` normalized hybrid RRF, and `>= 0` for unbounded BM25 — instead of
+  applying the cosine range to every mode.
+
+### Changed
+
+- Call the client's unified `search_values` instead of the now-deprecated
+  `semantic_search_get_values` / `semantic_search_get_values_where`, and require
+  `montycat>=1.2.3`, which introduced it.
+- Reserve "hybrid" in tool documentation for the new ranking mode. Metadata,
+  `since`, and `until` are described as narrowing the candidate set, which is
+  what they have always done.
+- Order `montycat_list_memories` by key on persistent keyspaces (engine >=
+  1.3.1) instead of reading the latest storage volume. `recent=True` now returns
+  strict write order rather than an approximation, and `recent=False` reads from
+  the oldest record forward. In-memory keyspaces have no ordered read, so they
+  keep the volume heuristic and its empty-volume fallback.
+
 ## 1.0.0 — 2026-09-01
 
 ### Changed

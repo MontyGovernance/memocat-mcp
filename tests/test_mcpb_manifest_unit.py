@@ -64,11 +64,13 @@ def test_public_metadata_positions_montycat_as_cross_system_shared_memory():
     registry = json.loads((ROOT / "server.json").read_text(encoding="utf-8"))
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
-    assert "Shared AI Memory" in manifest["display_name"]
-    assert "shared" in manifest["description"].lower()
-    assert "AI agents and systems" in manifest["description"]
-    assert "AI agents and systems" in registry["description"]
-    assert "AI agents and systems" in project["project"]["description"]
+    # One tagline across every public surface, so search and recall reinforce.
+    tagline = "Shared, persistent memory for AI agents"
+    assert "Shared Memory for AI Agents" in manifest["display_name"]
+    assert "Shared Memory for AI Agents" in registry["title"]
+    assert manifest["description"].startswith(tagline)
+    assert registry["description"].startswith(tagline)
+    assert project["project"]["description"].startswith(tagline)
 
     keywords = {keyword.lower() for keyword in manifest["keywords"]}
     assert {

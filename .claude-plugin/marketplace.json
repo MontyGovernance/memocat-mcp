@@ -9,7 +9,7 @@
     {
       "name": "montycat-mcp",
       "source": "./plugins/montycat-mcp",
-      "description": "Local-first MCP server for shared, persistent AI agent memory, semantic search, RAG, and live updates.",
+      "description": "Shared, persistent memory for AI agents: a local-first MCP server with semantic search, RAG, and live updates.",
       "author": {
         "name": "MontyGovernance"
       },

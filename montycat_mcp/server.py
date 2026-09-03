@@ -78,6 +78,8 @@ from montycat import (
     Keyspace,
     PolicyCapability,
     PolicyKeyspaceType,
+    ResultOrder,
+    SearchMode,
     SemanticModel,
     Timestamp,
 )
@@ -88,8 +90,10 @@ SERVER_INSTRUCTIONS = """Montycat MCP is shared, persistent memory for AI agents
 systems. Search it for relevant prior context before asking the user to repeat
 information. Remember durable preferences, facts, and decisions when the user
 asks or when they will clearly be useful in a later conversation; update stale
-facts instead of creating conflicting duplicates. Use scope='shared' only when
-the user intends other authorized agents to access the memory. Sharing requires
+facts instead of creating conflicting duplicates. Search by meaning by default;
+switch to mode='keyword' when the query hinges on an exact term such as an
+identifier or error code, and mode='hybrid' when it is both. Use scope='shared'
+only when the user intends other authorized agents to access the memory. Sharing requires
 clients to connect to the same Montycat engine and keyspace—separate local
 engines do not synchronize. Do not store secrets or full conversation
 transcripts by default."""
@@ -272,10 +276,34 @@ def _validate_limit(limit: int, *, name: str = "limit") -> None:
         raise ValueError(f"{name} must be a positive integer.")
 
 
-def _validate_score(min_score: Optional[float]) -> None:
-    if min_score is not None and (isinstance(min_score, bool) or not isinstance(min_score, (int, float))
-                                  or not -1 <= min_score <= 1):
-        raise ValueError("min_score must be a number between -1 and 1.")
+# Each ranking mode scores on its own scale, so one bound cannot police them
+# all: cosine similarity is [-1, 1], engine-normalized hybrid RRF is [0, 1], and
+# raw BM25 is unbounded above — a keyword floor of 8.0 is legitimate.
+_SCORE_RANGE: dict[str, tuple[float, Optional[float]]] = {
+    "semantic": (-1.0, 1.0),
+    "hybrid": (0.0, 1.0),
+    "keyword": (0.0, None),
+}
+
+
+def _validate_mode(mode: str) -> SearchMode:
+    try:
+        return SearchMode(mode)
+    except ValueError:
+        raise ValueError(
+            "mode must be one of: semantic, keyword, hybrid."
+        ) from None
+
+
+def _validate_score(min_score: Optional[float], mode: str = "semantic") -> None:
+    if min_score is None:
+        return
+    if isinstance(min_score, bool) or not isinstance(min_score, (int, float)):
+        raise ValueError("min_score must be a number.")
+    low, high = _SCORE_RANGE[mode]
+    if min_score < low or (high is not None and min_score > high):
+        bound = f"between {low:g} and {high:g}" if high is not None else f"at least {low:g}"
+        raise ValueError(f"min_score must be {bound} in {mode} mode.")
 
 
 def _default_keyspace() -> str:
@@ -610,36 +638,52 @@ async def montycat_semantic_search(
     keyspace: Optional[str] = None,
     scope: Optional[str] = None,
     limit: int = 5,
+    mode: str = "semantic",
     min_score: Optional[float] = None,
     filters: Optional[dict] = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
     vector: Optional[list[float]] = None,
 ) -> Any:
-    """Search stored memory by MEANING (vector / semantic search), not keywords.
+    """Search stored memory by MEANING, by KEYWORD, or both.
 
     Use this to recall relevant facts, documents, or past context for RAG and
-    agent memory. Returns the top matches ranked by similarity, each with its
-    key, a cosine-similarity score, and the stored value.
+    agent memory. Returns the top matches ranked by relevance, each with its
+    key, a score, and the stored value.
 
-    Hybrid mode: `filters`, `since`, and `until` restrict WHICH memories are
-    ranked — a hard AND constraint over indexed fields; ranking stays pure
-    similarity. Combine them freely: "what did we decide about the index"
-    + `since` yesterday + `filters={"project": "montycat"}` is one call.
-    A filter matching nothing returns []. Requires a Montycat Semantic engine
-    with hybrid support (>= 1.2.3); older engines ignore the filter.
+    Ranking modes (`mode`):
+      - "semantic" (default) — vector similarity. Finds a memory whose wording
+        differs from the query. Scores are cosine similarity in [-1, 1].
+      - "keyword" — BM25 over the stored text. Use it when the query contains an
+        exact term that must appear: an identifier, error code, or file name.
+        BM25 scores are unbounded and comparable only within one query.
+      - "hybrid" — runs both and fuses them with reciprocal rank fusion. The
+        safest default when a query mixes meaning with an exact term. Scores are
+        normalized to [0, 1].
+    Keyword and hybrid need a Montycat Semantic engine >= 1.3.4; older engines
+    reject the request rather than silently returning semantic-only results.
+
+    Narrowing is separate from ranking: `filters`, `since`, and `until` restrict
+    WHICH memories are ranked — a hard AND over indexed fields — and never
+    change the order within that set. Combine them freely: "what did we decide
+    about the index" + `since` yesterday + `filters={"project": "montycat"}` is
+    one call. A filter matching nothing returns [].
 
     Args:
         query: Natural-language description of what to recall. May be empty
                when `vector` supplies a precomputed query embedding.
-        vector: Optional precomputed query embedding. It must match the
-                keyspace's enrolled embedding space and dimensions; when set,
-                the engine does not embed `query`.
+        mode: Ranking strategy — "semantic", "keyword", or "hybrid".
+        vector: Optional precomputed query embedding, for the vector half of
+                "semantic" and "hybrid". It must match the keyspace's enrolled
+                embedding space and dimensions; when set, the engine does not
+                embed `query`.
         scope: Owner/user id to scope recall to (searches only that owner's memory,
                keyspace mem_<scope>). Use "shared" for the common keyspace.
         keyspace: Explicit keyspace override (advanced; bypasses scope).
         limit: Max number of results (default 5).
-        min_score: Optional similarity floor in [-1, 1]; drops weak matches.
+        min_score: Optional relevance floor; drops weak matches. The valid range
+                   follows the mode: [-1, 1] semantic, [0, 1] hybrid, >= 0
+                   keyword.
         filters: Optional metadata constraints, e.g. {"project": "x"} — only
                  memories whose indexed fields equal these values are ranked.
         since: Only memories created at/after this time (ISO-8601, UTC —
@@ -647,9 +691,14 @@ async def montycat_semantic_search(
         until: Only memories created before this time (ISO-8601, UTC).
     """
     _validate_limit(limit)
-    _validate_score(min_score)
+    search_mode = _validate_mode(mode)
+    _validate_score(min_score, search_mode.value)
     if not query.strip() and vector is None:
         raise ValueError("Provide a non-empty query or a precomputed vector.")
+    # BM25 ranks the query text itself, so a bare vector has nothing to score
+    # against; failing here beats an engine-side rejection with less context.
+    if search_mode is SearchMode.KEYWORD and not query.strip():
+        raise ValueError("keyword mode needs query text; a vector alone cannot be scored.")
     ks = await _bind(_resolve_keyspace(scope, keyspace))
     if since or until:
         filters = dict(filters or {})
@@ -659,12 +708,13 @@ async def montycat_semantic_search(
             filters["_created_at"] = Timestamp(after=since)
         else:
             filters["_created_at"] = Timestamp(before=until)
-    if filters:
-        return await _call(ks.semantic_search_get_values_where(
-            query, filters, vector=vector, limit=limit, min_score=min_score
-        ))
-    return await _call(ks.semantic_search_get_values(
-        query, vector=vector, limit=limit, min_score=min_score
+    return await _call(ks.search_values(
+        query=query,
+        mode=search_mode,
+        filters=filters or None,
+        vector=vector,
+        limit=limit,
+        min_score=min_score,
     ))
 
 
@@ -1369,38 +1419,47 @@ async def montycat_list_memories(
     Args:
         keyspace: Memory namespace (defaults to the configured one).
         limit: Max records to return (default 25).
-        recent: Bias toward the most recently written records (default True).
-                Ordering is approximate (by storage volume), not a strict timestamp sort.
-                Falls back to a full scan when the latest volume is empty.
-                Pass False to scan the whole keyspace from the start.
+        recent: Return the most recently written records first (default True).
+                Persistent keyspaces order by key, which is a strict write
+                order; in-memory keyspaces have no ordered read, so there the
+                bias stays approximate (by storage volume) and falls back to a
+                full scan when the latest volume is empty. Pass False to read
+                from the oldest record forward.
     """
     _validate_limit(limit)
     name = _resolve_keyspace(scope, keyspace)
     ks = await _bind(name)
     # get_keys needs a volume selector *or* a range; `latest_volume=False` alone
     # is neither, and the client rejects it with "Please provide volumes/latest
-    # volume or limit." Only the persistent client takes a range: the in-memory
-    # one is get_keys(volumes, latest_volume) with no `limit` parameter at all,
-    # so handing it one raises TypeError instead of returning keys. The
-    # persistent range is an inclusive [start, stop], so [0, limit] over-reads
-    # by one and the slice below trims it — [0, limit - 1] would collapse to
-    # [0, 0] at limit=1, which the client also reads as "no range".
+    # volume or limit." Only the persistent client takes a range and an `order`
+    # (engine >= 1.3.1): the in-memory one is get_keys(volumes, latest_volume)
+    # with no `limit` parameter at all, so handing it one raises TypeError
+    # instead of returning keys. Engine 1.3.1 made the range half-open, so
+    # [0, limit] is exactly `limit` keys (verified live: [0, 2] returns two);
+    # the slice below stays as a guard for engines that read it inclusively.
     is_persistent = issubclass(ks, Keyspace.Persistent)
 
     async def _scan_widest():
         """Read the whole keyspace, however its storage type allows it."""
         if is_persistent:
-            return await _call(ks.get_keys(limit=[0, limit]))
+            return await _call(ks.get_keys(limit=[0, limit], order=ResultOrder.ASCENDING))
         volumes = await _inmemory_volumes(name)
         if not volumes:
             return {"status": True, "payload": [], "error": None}
         return await _call(ks.get_keys(volumes=volumes))
 
-    keys_res = await _call(ks.get_keys(latest_volume=True)) if recent else await _scan_widest()
+    if recent and is_persistent:
+        # A descending key range is the whole keyspace read newest-first, so
+        # there is no empty-latest-volume case to widen out of below.
+        keys_res = await _call(ks.get_keys(limit=[0, limit], order=ResultOrder.DESCENDING))
+    elif recent:
+        keys_res = await _call(ks.get_keys(latest_volume=True))
+    else:
+        keys_res = await _scan_widest()
     if isinstance(keys_res, dict) and keys_res.get("status") is False:
         return keys_res  # surface the failure instead of reporting "no memories"
     keys = keys_res.get("payload") if isinstance(keys_res, dict) else None
-    if not keys and recent:
+    if not keys and recent and not is_persistent:
         # The latest volume can be empty while older volumes hold records, and
         # an empty payload is indistinguishable from "nothing remembered" once
         # it reaches the caller. Widen to a full scan before reporting the
