@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.MontyGovernance/montycat-mcp",
-  "title": "Montycat MCP — Shared Memory for AI Agents",
+  "title": "Montycat MCP - Shared Memory for AI Agents",
   "description": "Shared, persistent memory for AI agents, with semantic recall and live updates.",
   "repository": {
     "url": "https://github.com/MontyGovernance/montycat-mcp",
