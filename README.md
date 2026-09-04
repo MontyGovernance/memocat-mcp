@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/MontyGovernance/montycat-mcp/master/assets/icon.png" alt="Montycat logo" width="72" align="left" hspace="12">
+<img src="https://raw.githubusercontent.com/MontyGovernance/montycat-mcp/master/assets/icon.png" alt="Montycat logo" width="72" align="left" hspace="12"> 
 
 # Montycat MCP - Shared Memory for AI Agents
 
