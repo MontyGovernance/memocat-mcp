@@ -19,8 +19,7 @@ RELEASE_COMMANDS.md
 publish_docker.sh
 build_mcpb.sh
 server.json
-CLAUDE_DIRECTORY_PLAN.md
-MCPB_DIRECTORY_PLAN.md
+*_PLAN.md
 MCPB_SUBMISSION.md
 uv.lock
 compat/

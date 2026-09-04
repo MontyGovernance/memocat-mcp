@@ -19,9 +19,11 @@ memory and read each other's.
 
 ## Install
 
-**Claude Desktop** — download the latest `.mcpb` from
-[Releases](https://github.com/MontyGovernance/montycat-mcp/releases/latest) and
-drag it into Claude Desktop. No Python needed.
+**Claude Desktop** — download
+[`montycat-mcp.mcpb`](https://github.com/MontyGovernance/montycat-mcp/releases/latest/download/montycat-mcp.mcpb)
+and drag it into Claude Desktop. No Python needed. That link always serves the
+current release; [every release](https://github.com/MontyGovernance/montycat-mcp/releases/latest)
+also carries a version-named copy and a `.sha256` to check it against.
 
 **Claude Code** — install [`uv`](https://docs.astral.sh/uv/getting-started/installation/), then:
 
